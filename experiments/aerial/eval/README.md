@@ -1,5 +1,7 @@
 # Aerial closed-loop eval (M1a)
 
+Phase-1 gate status: see [main checklist](../README.md#gate-checklist).
+
 Closed-loop evaluation runner for OpenFly aerial VLN: FastWAM policy (or replay
 baseline) drives discrete OpenFly primitives inside a sim bridge; metrics SR / NE /
 SPL are written to JSON.

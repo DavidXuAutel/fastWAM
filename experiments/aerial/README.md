@@ -1,4 +1,17 @@
-# Aerial OpenFly M0 training runbook
+# Aerial OpenFly Phase-1
+
+Phase-1 scope (Tasks 1–7): OpenFly→LeRobot bridge, `aerial_openfly` profile
+(4D action, 1 camera), M0 train gate, and closed-loop SR/NE/SPL eval (M1a).
+
+## Gate checklist
+
+| Gate | Status | Evidence |
+|------|--------|----------|
+| M0 train (50 steps) | **BLOCKED** — pending Linux CUDA | Runbook below: [Prepare dataset](#prepare-the-m0-dataset) → [Precompute text embeddings](#precompute-text-embeddings) → [Run 50-step gate](#run-the-50-step-m0-gate) → [Evidence to retain](#evidence-to-retain). Checkpoint path: `runs/aerial_joint_1cam_1e-4/<RUN_ID>/checkpoints/weights/step_000050.pt`. Not executed on macOS dev host. |
+| M1a mock | **DONE** | [eval/README.md — offline mock smoke](eval/README.md#evidence-mock-smoke): `PYTHONPATH=. python -m experiments.aerial.eval.run_closed_loop --bridge mock --policy replay --ann experiments/aerial/tests/fixtures/mini_openfly/seen_mini.json --max-episodes 3 --max-steps 50 --seed 42 --out experiments/aerial/results/aerial_m1a/metrics_mock.json` |
+| M1a real | **PENDING** — Linux OpenFly + checkpoint | [eval/README.md — Linux setup & CLI](eval/README.md#linux-clone-openfly-platform): ≥20 episodes with `--bridge openfly --policy fastwam`; requires M0 checkpoint. Output: `results/aerial_m1a/metrics.json`. |
+
+## M0 training runbook
 
 This runbook is for the Phase-1 M0 gate: run the `aerial_joint_1cam_1e-4`
 profile for 50 optimizer steps without a crash, with finite `loss_video` and
