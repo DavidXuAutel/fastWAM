@@ -107,3 +107,22 @@ Pass M0 only when logs show `[done] max_steps reached step=50`, the logged
 `loss_video` and `loss_action` values are finite, and both checkpoint paths
 exist. A CPU/MPS dataloader smoke is useful for wiring checks but is not
 evidence for the M0 train gate.
+
+## macOS / no-GPU preflight (optional)
+
+Use the parent-repo virtualenv (`../.venv` or project `.venv`) and run wiring
+checks only. This host cannot satisfy M0 because DeepSpeed training requires
+NVIDIA CUDA.
+
+```bash
+cd /path/to/FastWAM
+source .venv/bin/activate   # or /path/to/FastWAM/.venv/bin/python
+
+python -m pytest experiments/aerial/tests/ -q
+python experiments/aerial/m0_preflight.py --lerobot-root data/openfly_lerobot/smoke
+```
+
+Expected on smoke data without text cache: Hydra resolves `action_dim=4`,
+`max_steps=50`, verification passes, dataset builds, then
+`sample_ok=False` with `Missing text embedding cache` until
+`precompute_text_embeds.py` runs on a GPU host.
