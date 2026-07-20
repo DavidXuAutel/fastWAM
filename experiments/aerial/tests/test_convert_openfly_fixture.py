@@ -56,6 +56,32 @@ def test_convert_drops_openfly_padding_actions():
     )
 
 
+def test_convert_accepts_mixed_3d_and_4d_pos_rows():
+    traj = _trajectory()
+    # OpenFly sometimes stores [x,y,z,yaw] rows mixed with [x,y,z].
+    traj["pos"] = [
+        [0.0, 0.0, 1.0, 0.0],
+        [3.0, 0.0, 1.0],
+        [6.0, 0.0, 1.0, 0.0],
+        [6.0, 0.0, 1.0, np.pi / 6],
+    ]
+    traj["yaw"] = [9.0, 9.0, 9.0, 9.0]  # should be ignored when pos is 4D
+
+    frames = convert_trajectory(traj, FIXTURE)
+
+    assert len(frames) == 3
+    np.testing.assert_allclose(frames[0]["observation.state"], [0.0, 0.0, 1.0, 0.0])
+    np.testing.assert_allclose(
+        frames[2]["observation.state"],
+        [6.0, 0.0, 1.0, 0.0],
+    )
+    np.testing.assert_allclose(
+        frames[2]["action"],
+        [0.0, 0.0, 0.0, np.pi / 6],
+        atol=1e-5,
+    )
+
+
 def test_convert_rejects_non_v1_action_source():
     with pytest.raises(ValueError, match="pos_delta_v1"):
         convert_trajectory(_trajectory(), FIXTURE, action_source="primitive")

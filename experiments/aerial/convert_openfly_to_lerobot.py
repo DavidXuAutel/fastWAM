@@ -36,6 +36,40 @@ def _image_file(image_root: Path, image_path: str, frame_id: object) -> Path:
     )
 
 
+def _normalize_pos_yaw(traj: dict) -> tuple[np.ndarray, np.ndarray]:
+    """Normalize OpenFly pose rows to (N,3) xyz + (N,) yaw.
+
+    Some OpenFly trajectories mix 3D ``[x,y,z]`` with 4D ``[x,y,z,yaw]`` pose
+    rows in the same ``pos`` list. Prefer the embedded yaw when present.
+    """
+    raw_pos = list(traj["pos"])
+    raw_yaw = list(traj["yaw"])
+    if len(raw_pos) != len(raw_yaw):
+        raise ValueError(
+            f"pos and yaw length mismatch: {len(raw_pos)} vs {len(raw_yaw)}"
+        )
+
+    positions: list[list[float]] = []
+    yaws: list[float] = []
+    for index, row in enumerate(raw_pos):
+        values = list(row)
+        if len(values) == 3:
+            positions.append([float(values[0]), float(values[1]), float(values[2])])
+            yaws.append(float(raw_yaw[index]))
+        elif len(values) == 4:
+            positions.append([float(values[0]), float(values[1]), float(values[2])])
+            yaws.append(float(values[3]))
+        else:
+            raise ValueError(
+                f"pos[{index}] must have length 3 or 4, got {len(values)}: {values!r}"
+            )
+
+    return (
+        np.asarray(positions, dtype=np.float64),
+        np.asarray(yaws, dtype=np.float64).reshape(-1),
+    )
+
+
 def convert_trajectory(
     traj: dict,
     image_root: Path,
@@ -46,8 +80,7 @@ def convert_trajectory(
     if action_source != ACTION_SOURCE:
         raise ValueError(f"action_source must be {ACTION_SOURCE!r}, got {action_source!r}")
 
-    positions = np.asarray(traj["pos"], dtype=np.float64)
-    yaws = np.asarray(traj["yaw"], dtype=np.float64).reshape(-1)
+    positions, yaws = _normalize_pos_yaw(traj)
     actions = np.asarray(traj["action"]).reshape(-1)
     frame_ids = list(traj["index_list"])
     task = str(traj["gpt_instruction"]).strip()
