@@ -11,6 +11,10 @@ from experiments.aerial.openfly_actions import clip_body_delta, pos_yaw_to_body_
 _LOOKAHEAD_M = 6.0
 
 
+def _wrap_angle(angle: float) -> float:
+    return (float(angle) + np.pi) % (2.0 * np.pi) - np.pi
+
+
 @dataclass(frozen=True)
 class ExpertLabel:
     action: np.ndarray
@@ -59,7 +63,7 @@ class PathExpert:
 
         best_point = self._positions[-1]
         best_progress = float(self._cumulative[-1])
-        best_distance = float(np.linalg.norm(pos - best_point))
+        best_distance = float("inf")
 
         for index in range(len(self._positions) - 1):
             start_progress = float(self._cumulative[index])
@@ -78,9 +82,12 @@ class PathExpert:
             t = float(np.clip(t, min_t, 1.0))
             point = start + t * delta
             distance = float(np.linalg.norm(pos - point))
-            if distance < best_distance:
+            candidate_progress = start_progress + t * length
+            if distance < best_distance or (
+                distance == best_distance and candidate_progress < best_progress
+            ):
                 best_point = point
-                best_progress = start_progress + t * length
+                best_progress = candidate_progress
                 best_distance = distance
 
         return best_point.copy(), max(self._progress_m, best_progress)
@@ -103,5 +110,6 @@ class PathExpert:
         position = self._positions[index] + t * (
             self._positions[index + 1] - self._positions[index]
         )
-        yaw = float(self._yaws[index] + t * (self._yaws[index + 1] - self._yaws[index]))
+        yaw_delta = _wrap_angle(float(self._yaws[index + 1] - self._yaws[index]))
+        yaw = _wrap_angle(float(self._yaws[index]) + t * yaw_delta)
         return position, yaw

@@ -57,3 +57,32 @@ def test_returned_action_is_clipped_to_training_ranges():
         label.action,
         [6.0, 7.794228553771973, 3.0, 0.5235987901687622],
     )
+
+
+def test_lookahead_yaw_interpolates_across_wrap_boundary():
+    expert = PathExpert()
+    expert.reset(
+        {
+            "pos": [[0.0, 0.0, 0.0], [12.0, 0.0, 0.0]],
+            "yaw": [np.pi - 0.1, -np.pi + 0.1],
+        }
+    )
+
+    label = expert.label(np.array([0.0, 0.0, 0.0]), np.pi - 0.1)
+
+    assert label.action[3] == pytest.approx(0.1)
+
+
+def test_projection_tie_prefers_earliest_repeated_endpoint():
+    expert = PathExpert()
+    expert.reset(
+        {
+            "pos": [[0.0, 0.0, 0.0], [10.0, 0.0, 0.0], [0.0, 0.0, 0.0]],
+            "yaw": [0.0, 0.0, 0.0],
+        }
+    )
+
+    label = expert.label(np.array([0.0, 0.0, 0.0]), 0.0)
+
+    assert label.progress_m == pytest.approx(0.0)
+    np.testing.assert_allclose(label.lookahead_pos, [6.0, 0.0, 0.0])
