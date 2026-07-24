@@ -87,6 +87,8 @@ class TakeoverController:
             if self._release_stable_steps >= config.release_stable_steps:
                 self._mode = "policy"
                 self._release_stable_steps = 0
+                self._worsen_steps = 0
+                self._stall_steps = 0
                 return TakeoverDecision(
                     mode="policy", intervene=False, reason="released_to_policy"
                 )

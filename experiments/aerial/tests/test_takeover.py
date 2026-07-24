@@ -4,7 +4,7 @@ import inspect
 
 import pytest
 
-from experiments.aerial.takeover import TakeoverController, freeze_thresholds
+from experiments.aerial.takeover import TakeoverConfig, TakeoverController, freeze_thresholds
 
 
 def test_freeze_thresholds_low_p95():
@@ -54,3 +54,22 @@ def test_abort_after_no_progress_gain_for_twenty_steps():
 
     assert decision.mode == "abort"
     assert decision.intervene is False
+
+
+def test_release_resets_stall_counter_before_policy_resumes():
+    controller = TakeoverController(
+        TakeoverConfig(
+            takeover_m=5.0,
+            release_m=4.0,
+            abort_m=30.0,
+            stall_steps=3,
+            release_stable_steps=1,
+            no_progress_abort_steps=20,
+        )
+    )
+    assert controller.step(cross_track_m=6.0, progress_m=0.0).mode == "expert"
+    assert controller.step(cross_track_m=3.0, progress_m=0.0).mode == "policy"
+
+    decision = controller.step(cross_track_m=3.0, progress_m=0.0)
+
+    assert decision.mode == "policy"
