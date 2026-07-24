@@ -43,6 +43,12 @@ class TakeoverController:
         self._release_stable_steps = 0
         self._no_progress_steps = 0
 
+    def _reset_mode_counters(self) -> None:
+        self._worsen_steps = 0
+        self._stall_steps = 0
+        self._release_stable_steps = 0
+        self._no_progress_steps = 0
+
     def step(self, cross_track_m: float, progress_m: float) -> TakeoverDecision:
         if self._mode == "abort":
             return TakeoverDecision(
@@ -86,9 +92,7 @@ class TakeoverController:
 
             if self._release_stable_steps >= config.release_stable_steps:
                 self._mode = "policy"
-                self._release_stable_steps = 0
-                self._worsen_steps = 0
-                self._stall_steps = 0
+                self._reset_mode_counters()
                 return TakeoverDecision(
                     mode="policy", intervene=False, reason="released_to_policy"
                 )
@@ -103,13 +107,13 @@ class TakeoverController:
             or self._stall_steps >= config.stall_steps
         ):
             self._mode = "expert"
-            self._release_stable_steps = 0
             if cross_track_m > config.takeover_m:
                 reason = "cross_track_exceeded"
             elif self._worsen_steps >= config.worsen_steps:
                 reason = "cross_track_worsening"
             else:
                 reason = "progress_stalled"
+            self._reset_mode_counters()
             return TakeoverDecision(mode="expert", intervene=True, reason=reason)
 
         return TakeoverDecision(mode="policy", intervene=False, reason="policy_control")

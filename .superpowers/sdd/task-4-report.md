@@ -48,3 +48,25 @@ After implementation, all focused tests passed.
 The worktree contained substantial pre-existing uncommitted changes before Task
 4, including the continuous `step_delta` and pose-normalization helpers consumed
 here. Those files were not modified or staged as part of this task.
+
+## Reviewer Fixes
+
+- All policy/expert control-mode transitions now reset worsen, stall,
+  release-stability, and no-progress counters together.
+- Added a regression proving a stall-triggered takeover and release cannot
+  consume leftover no-progress budget and abort on the next policy step.
+- Bridge and policy construction now occur inside the per-episode guarded
+  lifecycle. Bridge and policy setup failures become atomic failed manifest
+  entries, and a bridge created before policy failure is closed.
+- Added explicit coverage showing the persisted training `action` remains the
+  continuous expert label when the executed policy action differs.
+
+### Fix Evidence
+
+- Red: the three focused regressions initially failed with an early
+  `no_progress_abort`, an uncaught policy setup exception, and an uncaught
+  bridge setup exception.
+- Green: takeover and collector suites passed, 12 tests.
+- Full aerial suite: 64 tests passed.
+- Cursor diagnostics reported no linter errors in the four changed code/test
+  files.

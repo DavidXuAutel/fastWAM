@@ -187,20 +187,21 @@ def collect_episodes(
 
     for index, episode in enumerate(episodes):
         episode_name = f"ep{index:03d}"
-        bridge = build_bridge(
-            bridge_name,
-            openfly_root=openfly_root,
-            env_name=_episode_env_name(episode),
-            seed=seed,
-        )
-        policy = build_policy(
-            policy_name,
-            episode,
-            checkpoint=checkpoint,
-            task=task,
-            seed=seed,
-        )
+        bridge: Optional[Bridge] = None
         try:
+            bridge = build_bridge(
+                bridge_name,
+                openfly_root=openfly_root,
+                env_name=_episode_env_name(episode),
+                seed=seed,
+            )
+            policy = build_policy(
+                policy_name,
+                episode,
+                checkpoint=checkpoint,
+                task=task,
+                seed=seed,
+            )
             result = collect_episode(
                 bridge,
                 policy,
@@ -224,7 +225,8 @@ def collect_episodes(
                 {"episode": episode_name, "reason": str(exc), "frames": 0}
             )
         finally:
-            bridge.close()
+            if bridge is not None:
+                bridge.close()
         _write_manifest_atomic(manifest_path, manifest)
 
     return manifest

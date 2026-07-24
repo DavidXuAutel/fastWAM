@@ -43,7 +43,13 @@ def test_step_does_not_accept_ne():
 
 
 def test_abort_after_no_progress_gain_for_twenty_steps():
-    config = freeze_thresholds(1.0)
+    config = TakeoverConfig(
+        takeover_m=9.0,
+        release_m=6.0,
+        abort_m=30.0,
+        stall_steps=99,
+        no_progress_abort_steps=20,
+    )
     controller = TakeoverController(config)
 
     for _ in range(19):
@@ -73,3 +79,24 @@ def test_release_resets_stall_counter_before_policy_resumes():
     decision = controller.step(cross_track_m=3.0, progress_m=0.0)
 
     assert decision.mode == "policy"
+
+
+def test_stall_takeover_does_not_reuse_no_progress_budget_after_release():
+    controller = TakeoverController(
+        TakeoverConfig(
+            takeover_m=10.0,
+            release_m=4.0,
+            abort_m=30.0,
+            stall_steps=2,
+            release_stable_steps=1,
+            no_progress_abort_steps=4,
+        )
+    )
+    assert controller.step(cross_track_m=5.0, progress_m=0.0).mode == "policy"
+    assert controller.step(cross_track_m=5.0, progress_m=0.0).mode == "expert"
+    assert controller.step(cross_track_m=3.0, progress_m=0.0).mode == "policy"
+
+    decision = controller.step(cross_track_m=3.0, progress_m=0.0)
+
+    assert decision.mode == "policy"
+    assert decision.reason == "policy_control"
