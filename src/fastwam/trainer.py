@@ -10,6 +10,7 @@ import time
 import numpy as np
 import torch
 from accelerate import Accelerator
+from hydra.utils import instantiate
 from omegaconf import DictConfig
 from PIL import Image
 from torch.optim.lr_scheduler import ConstantLR, CosineAnnealingLR, LinearLR, SequentialLR
@@ -42,6 +43,9 @@ class Wan22Trainer:
         self.log_every = int(cfg.log_every)
         self.save_every = int(cfg.save_every)
         self.eval_every = int(cfg.eval_every)
+        self.source_monitor = (
+            instantiate(cfg.source_monitor) if cfg.get("source_monitor") is not None else None
+        )
         self.eval_num_inference_steps = int(cfg.eval_num_inference_steps)
         self.gradient_accumulation_steps = int(cfg.gradient_accumulation_steps)
         self.max_grad_norm = float(cfg.max_grad_norm)
@@ -180,6 +184,13 @@ class Wan22Trainer:
             pin_memory=torch.cuda.is_available(),
             worker_init_fn=worker_init_fn,
         )
+
+    def _record_ft_sources(self, sample) -> None:
+        if self.source_monitor is None:
+            return
+        if "data_source" not in sample:
+            raise RuntimeError("FT source monitoring requires a `data_source` field in each batch")
+        self.source_monitor.record(sample["data_source"], step=self.global_step)
 
     def _assert_dataset_length_consistent(self, dataset, dataset_name: str):
         if not hasattr(dataset, "__len__"):
@@ -681,6 +692,7 @@ class Wan22Trainer:
                         self.scheduler.step()
                     self.optimizer.zero_grad(set_to_none=True)
                     self.global_step += 1
+                    self._record_ft_sources(sample)
                     global_loss = float(
                         self.accelerator.gather(loss.detach().float().reshape(1)).mean().item()
                     )
