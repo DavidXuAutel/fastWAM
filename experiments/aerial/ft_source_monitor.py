@@ -29,7 +29,16 @@ class FTSourceMonitor:
         self.max_correction_rate = float(max_correction_rate)
         self._log_counts: Counter[str] = Counter()
         self._window_counts: Counter[str] = Counter()
-        self._window_start_step = 1
+        self.reset(start_step=0)
+
+    def reset(self, *, start_step: int) -> None:
+        """Reset process-local counters after startup or checkpoint resume."""
+
+        self._log_counts.clear()
+        self._window_counts.clear()
+        self._log_start_step = int(start_step) + 1
+        self._window_start_step = int(start_step) + 1
+        self._skip_partial_window = int(start_step) % self.window_steps != 0
 
     def record(self, sources: str | Sequence[str], *, step: int) -> None:
         if isinstance(sources, str):
@@ -40,19 +49,30 @@ class FTSourceMonitor:
         self._log_counts.update(str(source) for source in sources)
         self._window_counts.update(str(source) for source in sources)
 
-        if step % self.log_every == 0:
+        if step - self._log_start_step + 1 >= self.log_every:
             total = sum(self._log_counts.values())
             correction_rate = self._log_counts[self.correction_name] / total
             logger.info(
                 "[ft-data] source counts steps=%d-%d counts=%s correction_rate=%.4f",
-                step - self.log_every + 1,
+                self._log_start_step,
                 step,
                 dict(sorted(self._log_counts.items())),
                 correction_rate,
             )
             self._log_counts.clear()
+            self._log_start_step = step + 1
 
         if step % self.window_steps == 0:
+            if self._skip_partial_window:
+                logger.info(
+                    "[ft-data] skipping partial resumed source window steps=%d-%d",
+                    self._window_start_step,
+                    step,
+                )
+                self._window_counts.clear()
+                self._window_start_step = step + 1
+                self._skip_partial_window = False
+                return
             total = sum(self._window_counts.values())
             correction_rate = self._window_counts[self.correction_name] / total
             if not self.min_correction_rate <= correction_rate <= self.max_correction_rate:

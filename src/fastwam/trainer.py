@@ -128,6 +128,7 @@ class Wan22Trainer:
         self.wandb_run = None
         self._init_wandb()
         self._resume_or_load_checkpoint()
+        self._reset_source_monitor()
 
         val_size = len(self.val_dataset) if self.val_dataset is not None else len(self.train_dataset)
         logger.info("Train/val dataset size: %d/%d", len(self.train_dataset), val_size)
@@ -191,6 +192,10 @@ class Wan22Trainer:
         if "data_source" not in sample:
             raise RuntimeError("FT source monitoring requires a `data_source` field in each batch")
         self.source_monitor.record(sample["data_source"], step=self.global_step)
+
+    def _reset_source_monitor(self) -> None:
+        if self.source_monitor is not None:
+            self.source_monitor.reset(start_step=self.global_step)
 
     def _assert_dataset_length_consistent(self, dataset, dataset_name: str):
         if not hasattr(dataset, "__len__"):

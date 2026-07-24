@@ -1,7 +1,9 @@
 import logging
+from pathlib import Path
 
 import pytest
 import torch
+from omegaconf import OmegaConf
 from torch.utils.data import Dataset
 
 from experiments.aerial.ft_mix_dataset import build_ft_mix_dataset
@@ -37,6 +39,31 @@ def test_weighted_source_dataset_draws_correction_at_25_percent():
     correction_rate = counts["correction"] / sum(counts.values())
     assert 0.20 <= correction_rate <= 0.30
     assert dataset.pop_source_counts() == {"original": 0, "correction": 0}
+
+
+def test_ft_seed_keeps_five_consecutive_windows_in_range():
+    dataset = WeightedSourceDataset(
+        datasets=[TinyDataset("original"), TinyDataset("correction")],
+        probs=[0.75, 0.25],
+        names=["original", "correction"],
+        generator=torch.Generator().manual_seed(42),
+    )
+
+    correction_counts = []
+    for index in range(1_000):
+        dataset[index]
+        if (index + 1) % 200 == 0:
+            correction_counts.append(dataset.pop_source_counts()["correction"])
+
+    assert correction_counts == [48, 57, 51, 55, 46]
+    assert all(40 <= count <= 60 for count in correction_counts)
+
+
+def test_ft_task_uses_main_process_dataset_rng():
+    repo_root = Path(__file__).resolve().parents[3]
+    task_cfg = OmegaConf.load(repo_root / "configs/task/aerial_joint_b0_ft_dagger.yaml")
+
+    assert task_cfg.num_workers == 0
 
 
 def test_weighted_source_dataset_samples_within_selected_source():
@@ -110,6 +137,25 @@ def test_ft_source_monitor_rejects_out_of_range_window(correction_steps):
             monitor.record([source], step=step)
 
 
+def test_ft_source_monitor_skips_partial_window_after_resume():
+    monitor = FTSourceMonitor(
+        correction_name="correction",
+        log_every=50,
+        window_steps=200,
+        min_correction_rate=0.20,
+        max_correction_rate=0.30,
+    )
+    monitor.reset(start_step=150)
+
+    for step in range(151, 201):
+        monitor.record(["original"], step=step)
+
+    with pytest.raises(RuntimeError, match="steps 201-400"):
+        for step in range(201, 401):
+            source = "correction" if step < 240 else "original"
+            monitor.record([source], step=step)
+
+
 def test_trainer_records_collated_data_sources():
     calls = []
 
@@ -124,3 +170,19 @@ def test_trainer_records_collated_data_sources():
     trainer._record_ft_sources({"data_source": ["original", "correction"]})
 
     assert calls == [(["original", "correction"], 50)]
+
+
+def test_trainer_resets_source_monitor_at_restored_step():
+    calls = []
+
+    class RecordingMonitor:
+        def reset(self, *, start_step):
+            calls.append(start_step)
+
+    trainer = Wan22Trainer.__new__(Wan22Trainer)
+    trainer.source_monitor = RecordingMonitor()
+    trainer.global_step = 150
+
+    trainer._reset_source_monitor()
+
+    assert calls == [150]

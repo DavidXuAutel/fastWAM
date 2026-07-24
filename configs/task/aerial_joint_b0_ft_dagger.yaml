@@ -6,7 +6,9 @@ defaults:
   - _self_
 
 batch_size: 1
-num_workers: 2
+# WeightedSourceDataset owns a seeded generator. Keep sampling in the main
+# process so DataLoader workers cannot clone and correlate its RNG stream.
+num_workers: 0
 
 model:
   mot_checkpoint_mixed_attn: true
