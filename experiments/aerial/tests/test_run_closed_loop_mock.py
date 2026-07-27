@@ -56,6 +56,26 @@ def test_evaluate_episodes_mock_writes_finite_metrics(tmp_path):
         assert np.isfinite(float(loaded[key]))
 
 
+def test_evaluate_episodes_preserves_per_episode_metrics():
+    episodes = load_annotation(FIXTURE)[:2]
+    metrics = evaluate_episodes(
+        episodes,
+        bridge_name="mock",
+        policy_name="replay",
+        max_steps=50,
+        seed=42,
+    )
+    assert len(metrics["episodes"]) == 2
+    assert set(metrics["episodes"][0]) == {
+        "episode_id",
+        "success",
+        "NE",
+        "path_length",
+        "shortest_length",
+        "steps",
+    }
+
+
 def test_mock_metrics_reproducible_with_seed():
     episodes = load_annotation(FIXTURE)
     first = evaluate_episodes(

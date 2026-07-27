@@ -359,6 +359,13 @@ def build_bridge(
     return OpenFlyBridge(openfly_root, env_name or "env_airsim_16")
 
 
+def _episode_id(episode: dict[str, Any], index: int) -> str:
+    for key in ("route_id", "episode_id", "id"):
+        if key in episode and episode[key] is not None:
+            return str(episode[key])
+    return str(index)
+
+
 def evaluate_episodes(
     episodes: Sequence[dict[str, Any]],
     *,
@@ -369,13 +376,14 @@ def evaluate_episodes(
     openfly_root: Optional[Path] = None,
     seed: int = 0,
     task: str = "aerial_joint_1cam_1e-4",
-) -> dict[str, float]:
+) -> dict[str, Any]:
     successes: list[bool] = []
     path_lengths: list[float] = []
     shortest_lengths: list[float] = []
     nes: list[float] = []
+    episode_records: list[dict[str, Any]] = []
 
-    for episode in episodes:
+    for index, episode in enumerate(episodes):
         env_name = _episode_env_name(episode)
         bridge = build_bridge(
             bridge_name,
@@ -399,15 +407,31 @@ def evaluate_episodes(
         path_lengths.append(result.path_length)
         shortest_lengths.append(result.shortest_length)
         nes.append(result.navigation_error)
+        episode_records.append(
+            {
+                "episode_id": _episode_id(episode, index),
+                "success": result.success,
+                "NE": result.navigation_error,
+                "path_length": result.path_length,
+                "shortest_length": result.shortest_length,
+                "steps": result.steps,
+            }
+        )
 
     metrics = compute_sr_ne_spl(successes, path_lengths, shortest_lengths, nes)
     metrics["n"] = float(len(episodes))
+    metrics["episodes"] = episode_records
     return metrics
 
 
-def write_metrics(metrics: dict[str, float], out_path: Path) -> None:
+def write_metrics(metrics: dict[str, Any], out_path: Path) -> None:
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    payload = {key: float(value) for key, value in metrics.items()}
+    payload: dict[str, Any] = {}
+    for key, value in metrics.items():
+        if key == "episodes":
+            payload[key] = value
+        else:
+            payload[key] = float(value)
     with out_path.open("w", encoding="utf-8") as handle:
         json.dump(payload, handle, indent=2)
         handle.write("\n")
