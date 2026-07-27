@@ -3,7 +3,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="${REPO_ROOT:-$(cd "$SCRIPT_DIR/../../.." && pwd)}"
-EVAL_QUEUE_DIR="${EVAL_QUEUE_DIR:-/tmp/aerial_eval_cache/orchestration/eval_queue}"
+EVAL_QUEUE_DIR="${EVAL_QUEUE_DIR:-/home/a25689/aerial_cache_shared/orchestration/eval_queue}"
 EVAL_ENV_FILE="${EVAL_ENV_FILE:-/tmp/aerial_eval_cache/env.sh}"
 EVAL_WORKER_LOCK="${EVAL_WORKER_LOCK:-/tmp/aerial_eval_cache/orchestration/eval_worker.lock}"
 POLL_SECONDS="${POLL_SECONDS:-30}"
