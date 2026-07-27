@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 import json
 import math
 import os
@@ -68,7 +69,7 @@ def _move_to_done(queue_dir: Path, pending_path: Path, job_id: str) -> None:
 
 def enqueue(queue_dir: Path, job: dict[str, Any]) -> str:
     job_id = str(job["id"])
-    for subdir in ("pending", "running", "done"):
+    for subdir in ("pending", "running", "done", "failed"):
         if _job_path(queue_dir, subdir, job_id).is_file():
             return job_id
     record = dict(job)
@@ -98,3 +99,53 @@ def mark_done(queue_dir: Path, job_id: str, result: dict[str, Any]) -> None:
     done_path = _job_path(queue_dir, "done", job_id)
     done_path.parent.mkdir(parents=True, exist_ok=True)
     os.replace(running_path, done_path)
+
+
+def mark_succeeded(queue_dir: Path, job_id: str) -> None:
+    running_path = _job_path(queue_dir, "running", job_id)
+    job = _read_job(running_path)
+    metrics_path = Path(str(job["out_metrics"]))
+    if not metrics_valid(metrics_path):
+        raise ValueError(f"invalid or missing metrics: {metrics_path}")
+    mark_done(queue_dir, job_id, _read_job(metrics_path))
+
+
+def mark_failed(queue_dir: Path, job_id: str, error: str) -> None:
+    running_path = _job_path(queue_dir, "running", job_id)
+    job = _read_job(running_path)
+    job["error"] = error
+    write_status(running_path, job)
+    failed_path = _job_path(queue_dir, "failed", job_id)
+    failed_path.parent.mkdir(parents=True, exist_ok=True)
+    os.replace(running_path, failed_path)
+
+
+def _parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Manage the aerial filesystem eval queue")
+    parser.add_argument("--queue-dir", type=Path, required=True)
+    action = parser.add_mutually_exclusive_group(required=True)
+    action.add_argument("--claim", action="store_true")
+    action.add_argument("--mark-done", metavar="JOB_ID")
+    action.add_argument("--mark-failed", metavar="JOB_ID")
+    parser.add_argument("--error", default="evaluation failed")
+    return parser.parse_args()
+
+
+def main() -> None:
+    args = _parse_args()
+    if args.claim:
+        job = claim_next(args.queue_dir)
+        if job is not None:
+            print(json.dumps(job, sort_keys=True))
+        return
+    if args.mark_done is not None:
+        try:
+            mark_succeeded(args.queue_dir, args.mark_done)
+        except ValueError as exc:
+            raise SystemExit(str(exc)) from exc
+        return
+    mark_failed(args.queue_dir, args.mark_failed, args.error)
+
+
+if __name__ == "__main__":
+    main()
