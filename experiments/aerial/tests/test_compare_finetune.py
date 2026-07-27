@@ -261,6 +261,21 @@ def test_eval_script_dry_run_locks_heldout_protocol(tmp_path: Path):
     )
     assert syntax.returncode == 0, syntax.stderr
 
+    lock = tmp_path / "baseline_lock.manifest.json"
+    baseline = tmp_path / "baseline_metrics.json"
+    baseline.write_text('{"NE": 100.0, "n": 20}\n', encoding="utf-8")
+    lock.write_text(
+        json.dumps(
+            {
+                "baseline_mean_ne": 100.0,
+                "s1_ne": 80.0,
+                "metrics_path": str(baseline),
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
     result = subprocess.run(
         ["bash", str(script), "--dry-run"],
         env={
@@ -268,7 +283,7 @@ def test_eval_script_dry_run_locks_heldout_protocol(tmp_path: Path):
             "REPO_DIR": str(tmp_path / "repo"),
             "OPENFLY_ROOT": str(tmp_path / "openfly"),
             "HELDOUT_ANN": str(tmp_path / "heldout_seen20.json"),
-            "B0_METRICS": str(tmp_path / "step_004000.json"),
+            "LOCK_MANIFEST": str(lock),
             "FT_RUN_DIR": str(tmp_path / "ft"),
             "RESULT_DIR": str(tmp_path / "results"),
         },
@@ -283,6 +298,7 @@ def test_eval_script_dry_run_locks_heldout_protocol(tmp_path: Path):
     assert "--max-episodes 20" in result.stdout
     assert "--max-steps 100" in result.stdout
     assert "--seed 42" in result.stdout
-    assert "--task aerial_joint_b0_novideo" in result.stdout
+    assert "--task aerial_joint_b1_joint" in result.stdout
     assert "compare_finetune" in result.stdout
+    assert "--lock-manifest" in result.stdout
     assert "unseen" not in result.stdout.lower()
