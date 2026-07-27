@@ -1,19 +1,20 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 import re
-import warnings
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Optional, Sequence
+from typing import Optional, Sequence
 
 from experiments.aerial.orchestration.state import write_status
 
 ORCHESTRATION_VERSION = "aerial-b0-b1-orchestration/1"
 _CANDIDATE_KEYS = ("step", "checkpoint", "metrics_path", "mean_ne", "sha256")
 _SHA256_RE = re.compile(r"^[0-9a-fA-F]{64}$")
+_READ_CHUNK_BYTES = 8192
 
 
 def load_metrics(metrics_path: Path) -> float:
@@ -47,6 +48,57 @@ def validate_checkpoint_path(checkpoint: str | Path) -> Path:
     return path
 
 
+def compute_checkpoint_sha256(checkpoint: Path) -> str:
+    digest = hashlib.sha256()
+    with checkpoint.open("rb") as handle:
+        while True:
+            chunk = handle.read(_READ_CHUNK_BYTES)
+            if not chunk:
+                break
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def verify_checkpoint_sha256(checkpoint: Path, expected: str) -> None:
+    validate_sha256(expected)
+    actual = compute_checkpoint_sha256(checkpoint)
+    if actual.lower() != expected.lower():
+        raise ValueError(
+            f"sha256 mismatch for checkpoint {checkpoint}: expected {expected}, got {actual}"
+        )
+
+
+def validate_candidate(candidate: dict) -> dict:
+    try:
+        step = int(candidate["step"])
+        checkpoint = str(candidate["checkpoint"])
+        metrics_path = str(candidate["metrics_path"])
+        sha256 = str(candidate["sha256"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ValueError(f"invalid candidate fields: {candidate!r}") from exc
+    if "mean_ne" not in candidate:
+        raise ValueError(f"missing mean_ne for step {step}")
+    mean_ne = float(candidate["mean_ne"])
+    if not math.isfinite(mean_ne):
+        raise ValueError(f"non-finite mean_ne for step {step}")
+
+    ckpt_path = validate_checkpoint_path(checkpoint)
+    verify_checkpoint_sha256(ckpt_path, sha256)
+    metrics_ne = load_metrics(Path(metrics_path))
+    if mean_ne != metrics_ne:
+        raise ValueError(
+            f"mean_ne mismatch for step {step}: candidate has {mean_ne}, metrics has {metrics_ne}"
+        )
+
+    return {
+        "step": step,
+        "checkpoint": checkpoint,
+        "metrics_path": metrics_path,
+        "mean_ne": mean_ne,
+        "sha256": sha256,
+    }
+
+
 def validate_candidates_unique(candidates: list[dict]) -> None:
     steps: set[int] = set()
     checkpoints: set[str] = set()
@@ -66,19 +118,17 @@ def validate_candidates_unique(candidates: list[dict]) -> None:
         metrics_paths.add(metrics_path)
 
 
-def _validate_mean_ne(candidate: dict) -> None:
-    if "mean_ne" not in candidate:
-        raise ValueError(f"missing mean_ne for step {candidate.get('step')}")
-    if not math.isfinite(float(candidate["mean_ne"])):
-        raise ValueError(f"non-finite mean_ne for step {candidate['step']}")
+def validate_candidates(candidates: list[dict]) -> list[dict]:
+    if not candidates:
+        raise ValueError("no candidates")
+    validated = [validate_candidate(candidate) for candidate in candidates]
+    validate_candidates_unique(validated)
+    return validated
 
 
 def select_baseline(candidates: list[dict]) -> dict:
-    if not candidates:
-        raise ValueError("no candidates")
-    for candidate in candidates:
-        _validate_mean_ne(candidate)
-    return sorted(candidates, key=lambda c: (float(c["mean_ne"]), -int(c["step"])))[0]
+    validated = validate_candidates(candidates)
+    return sorted(validated, key=lambda c: (float(c["mean_ne"]), -int(c["step"])))[0]
 
 
 def _candidate_matches(left: dict, right: dict) -> bool:
@@ -99,40 +149,23 @@ def build_lock_manifest(
     stamp: str,
     selection_time: str | None = None,
 ) -> dict:
-    _assert_chosen_in_candidates(chosen, candidates)
+    validated = validate_candidates(candidates)
+    chosen_validated = validate_candidate(chosen)
+    _assert_chosen_in_candidates(chosen_validated, validated)
     if selection_time is None:
         selection_time = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
-    baseline = float(chosen["mean_ne"])
+    baseline = float(chosen_validated["mean_ne"])
     return {
         "stamp": stamp,
-        "checkpoint": chosen["checkpoint"],
-        "sha256": chosen["sha256"],
-        "metrics_path": chosen["metrics_path"],
+        "checkpoint": chosen_validated["checkpoint"],
+        "sha256": chosen_validated["sha256"],
+        "metrics_path": chosen_validated["metrics_path"],
         "baseline_mean_ne": baseline,
         "s1_ne": 0.8 * baseline,
-        "candidates": candidates,
+        "candidates": validated,
         "selection_rule": "min_mean_ne_tie_later_step",
         "selection_time": selection_time,
         "orchestration_version": ORCHESTRATION_VERSION,
-    }
-
-
-def _build_candidate_record(
-    *,
-    step: int,
-    checkpoint: str,
-    metrics_path: str,
-    sha256: str,
-) -> dict:
-    validate_sha256(sha256)
-    validate_checkpoint_path(checkpoint)
-    mean_ne = load_metrics(Path(metrics_path))
-    return {
-        "step": int(step),
-        "checkpoint": str(checkpoint),
-        "metrics_path": str(metrics_path),
-        "mean_ne": mean_ne,
-        "sha256": sha256,
     }
 
 
@@ -150,29 +183,15 @@ def parse_candidate_json(spec: str) -> dict:
         sha256 = str(raw["sha256"])
     except (KeyError, TypeError, ValueError) as exc:
         raise ValueError(f"invalid candidate JSON: {spec!r}") from exc
-    return _build_candidate_record(
-        step=step,
-        checkpoint=checkpoint,
-        metrics_path=metrics_path,
-        sha256=sha256,
-    )
-
-
-def parse_candidate_legacy(spec: str) -> dict:
-    warnings.warn(
-        "legacy --candidate STEP=CKPT=METRICS=SHA256 is deprecated; use --candidate-json",
-        DeprecationWarning,
-        stacklevel=2,
-    )
-    parts = spec.split("=", 3)
-    if len(parts) != 4 or not all(parts):
-        raise ValueError(f"invalid candidate spec: {spec!r}")
-    step_str, checkpoint, metrics_path, sha256 = parts
-    return _build_candidate_record(
-        step=int(step_str),
-        checkpoint=checkpoint,
-        metrics_path=metrics_path,
-        sha256=sha256,
+    mean_ne = load_metrics(Path(metrics_path))
+    return validate_candidate(
+        {
+            "step": step,
+            "checkpoint": checkpoint,
+            "metrics_path": metrics_path,
+            "mean_ne": mean_ne,
+            "sha256": sha256,
+        }
     )
 
 
@@ -181,42 +200,25 @@ def write_lock_manifest(path: Path, manifest: dict) -> None:
 
 
 def _parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Lock B0 baseline from eval candidates")
+    parser = argparse.ArgumentParser(
+        description="Lock B0 baseline from eval candidates",
+        allow_abbrev=False,
+    )
     parser.add_argument("--stamp", required=True)
     parser.add_argument(
         "--candidate-json",
         action="append",
-        default=[],
+        required=True,
         metavar="JSON",
         help="Candidate object JSON: {step, checkpoint, metrics_path, sha256}",
     )
-    parser.add_argument(
-        "--candidate",
-        action="append",
-        default=[],
-        metavar="STEP=CKPT=METRICS=SHA256",
-        help="DEPRECATED: use --candidate-json instead",
-    )
     parser.add_argument("--out", type=Path, required=True)
-    args = parser.parse_args(argv)
-    if not args.candidate_json and not args.candidate:
-        parser.error("at least one --candidate-json or --candidate is required")
-    return args
-
-
-def _resolve_candidates(args: argparse.Namespace) -> list[dict]:
-    candidates: list[dict] = []
-    for spec in args.candidate_json:
-        candidates.append(parse_candidate_json(spec))
-    for spec in args.candidate:
-        candidates.append(parse_candidate_legacy(spec))
-    validate_candidates_unique(candidates)
-    return candidates
+    return parser.parse_args(argv)
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
     args = _parse_args(argv)
-    candidates = _resolve_candidates(args)
+    candidates = validate_candidates([parse_candidate_json(spec) for spec in args.candidate_json])
     chosen = select_baseline(candidates)
     manifest = build_lock_manifest(chosen, candidates=candidates, stamp=args.stamp)
     write_lock_manifest(args.out, manifest)
