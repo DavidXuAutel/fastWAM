@@ -5,6 +5,7 @@ import subprocess
 import pytest
 
 from experiments.aerial.eval.compare_finetune import (
+    _lock_thresholds,
     compare_metrics,
     main,
     summarize,
@@ -222,6 +223,28 @@ def test_cli_rejects_malformed_lock_manifest(tmp_path: Path, manifest: dict):
                 str(tmp_path / "report.json"),
             ]
         )
+
+
+def test_lock_thresholds_rejects_s1_that_is_not_eighty_percent():
+    with pytest.raises(ValueError, match=r"s1_ne.*0\.8"):
+        _lock_thresholds({"baseline_mean_ne": 150.0, "s1_ne": 119.999})
+
+
+def test_lock_thresholds_accepts_json_roundtrip_ratio():
+    baseline_mean_ne = 135.94562291546043
+    manifest = json.loads(
+        json.dumps(
+            {
+                "baseline_mean_ne": baseline_mean_ne,
+                "s1_ne": 0.8 * baseline_mean_ne,
+            }
+        )
+    )
+
+    assert _lock_thresholds(manifest) == (
+        manifest["baseline_mean_ne"],
+        manifest["s1_ne"],
+    )
 
 
 def test_eval_script_dry_run_locks_heldout_protocol(tmp_path: Path):

@@ -216,6 +216,17 @@ def _lock_thresholds(manifest: Mapping[str, Any]) -> tuple[float, float]:
             values[key] = _finite_float(value, f"lock manifest {key}")
         except (TypeError, ValueError) as exc:
             raise ValueError(f"lock manifest field {key!r} must be finite") from exc
+    expected_s1_ne = 0.8 * values["baseline_mean_ne"]
+    if not math.isclose(
+        values["s1_ne"],
+        expected_s1_ne,
+        rel_tol=1e-12,
+        abs_tol=1e-12,
+    ):
+        raise ValueError(
+            "lock manifest s1_ne must equal 0.8 * baseline_mean_ne: "
+            f"expected {expected_s1_ne}, got {values['s1_ne']}"
+        )
     return values["baseline_mean_ne"], values["s1_ne"]
 
 
