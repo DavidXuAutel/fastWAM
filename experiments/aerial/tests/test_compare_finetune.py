@@ -2,27 +2,33 @@ import json
 from pathlib import Path
 import subprocess
 
+import pytest
+
 from experiments.aerial.eval.compare_finetune import (
-    S1_NE_THRESHOLD,
     compare_metrics,
     main,
     summarize,
 )
 
 
-def test_s1_pass_and_fail():
+def test_summarize_uses_dynamic_s1_threshold():
     report = summarize(
-        baseline_ne=135.94562291546043,
-        cand={"250": 120.0, "500": 100.0},
+        baseline_ne=150.0,
+        cand={"250": 120.01, "500": 120.0},
+        s1_ne=120.0,
     )
     assert report["best_step"] == "500"
     assert report["s1_pass"] is True
+    assert report["locked_baseline_NE"] == 150.0
+    assert report["s1_threshold_NE"] == 120.0
 
     failed = summarize(
-        baseline_ne=135.94562291546043,
-        cand={"250": S1_NE_THRESHOLD + 0.01},
+        baseline_ne=150.0,
+        cand={"250": 120.01},
+        s1_ne=120.0,
     )
     assert failed["s1_pass"] is False
+    assert failed["diagnosis"]["s1_threshold_NE"] == 120.0
     assert failed["diagnosis"]["failure_bins"] == [
         "improved_but_below_s1_margin",
         "flat",
@@ -30,8 +36,9 @@ def test_s1_pass_and_fail():
         "quantization_gap",
     ]
     boundary = summarize(
-        baseline_ne=135.94562291546043,
-        cand={"1000": S1_NE_THRESHOLD},
+        baseline_ne=150.0,
+        cand={"1000": 120.0},
+        s1_ne=120.0,
     )
     assert boundary["s1_pass"] is True
 
@@ -59,7 +66,12 @@ def test_compare_metrics_includes_episode_deltas_and_quantization_stats():
         "quantization_gap_l2": [1.0, 2.0, 3.0],
     }
 
-    report = compare_metrics(baseline, {"250": candidate})
+    report = compare_metrics(
+        baseline,
+        {"250": candidate},
+        baseline_mean_ne=30.0,
+        s1_ne=24.0,
+    )
     run = report["candidates"]["250"]
     assert run["mean_NE"] == 25.0
     assert run["median_NE"] == 30.0
@@ -79,18 +91,39 @@ def test_compare_metrics_includes_episode_deltas_and_quantization_stats():
     }
 
 
+def _write_lock_manifest(
+    path: Path,
+    *,
+    baseline_mean_ne: object = 150.0,
+    s1_ne: object = 120.0,
+) -> None:
+    path.write_text(
+        json.dumps(
+            {
+                "baseline_mean_ne": baseline_mean_ne,
+                "s1_ne": s1_ne,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+
 def test_cli_fail_writes_report_and_diagnosis_scaffold(tmp_path: Path):
-    baseline = tmp_path / "step_004000.json"
+    baseline = tmp_path / "dynamic_baseline.json"
     candidate = tmp_path / "step_000250.json"
+    lock_manifest = tmp_path / "baseline_lock.manifest.json"
     out = tmp_path / "ft_selection_report.json"
     diagnosis = tmp_path / "ft_s1_failure_diagnosis.json"
-    baseline.write_text(json.dumps({"NE": 135.94562291546043}), encoding="utf-8")
-    candidate.write_text(json.dumps({"NE": 120.0}), encoding="utf-8")
+    baseline.write_text(json.dumps({"NE": 150.0}), encoding="utf-8")
+    candidate.write_text(json.dumps({"NE": 120.01}), encoding="utf-8")
+    _write_lock_manifest(lock_manifest)
 
     rc = main(
         [
             "--baseline",
             str(baseline),
+            "--lock-manifest",
+            str(lock_manifest),
             "--candidate",
             f"250={candidate}",
             "--out",
@@ -101,33 +134,94 @@ def test_cli_fail_writes_report_and_diagnosis_scaffold(tmp_path: Path):
     )
 
     assert rc == 1
-    assert json.loads(out.read_text(encoding="utf-8"))["s1_pass"] is False
+    report = json.loads(out.read_text(encoding="utf-8"))
+    assert report["s1_pass"] is False
+    assert report["locked_baseline_NE"] == 150.0
+    assert report["s1_threshold_NE"] == 120.0
     payload = json.loads(diagnosis.read_text(encoding="utf-8"))
     assert payload["auto_expand_data"] is False
     assert payload["start_unseen"] is False
 
 
-def test_cli_rejects_baseline_ne_that_is_not_locked(tmp_path: Path):
-    baseline = tmp_path / "step_004000.json"
+def test_cli_exit_code_uses_manifest_s1_ne(tmp_path: Path):
+    baseline = tmp_path / "dynamic_baseline.json"
     candidate = tmp_path / "step_000250.json"
-    baseline.write_text(json.dumps({"NE": 135.0}), encoding="utf-8")
-    candidate.write_text(json.dumps({"NE": 100.0}), encoding="utf-8")
+    lock_manifest = tmp_path / "baseline_lock.manifest.json"
+    baseline.write_text(json.dumps({"NE": 150.0}), encoding="utf-8")
+    candidate.write_text(json.dumps({"NE": 119.0}), encoding="utf-8")
+    _write_lock_manifest(lock_manifest, baseline_mean_ne=150.0, s1_ne=120.0)
 
-    try:
+    rc = main(
+        [
+            "--baseline",
+            str(baseline),
+            "--lock-manifest",
+            str(lock_manifest),
+            "--candidate",
+            f"250={candidate}",
+            "--out",
+            str(tmp_path / "report.json"),
+        ]
+    )
+
+    assert rc == 0
+
+
+def test_cli_rejects_baseline_ne_that_disagrees_with_lock_manifest(tmp_path: Path):
+    baseline = tmp_path / "dynamic_baseline.json"
+    candidate = tmp_path / "step_000250.json"
+    lock_manifest = tmp_path / "baseline_lock.manifest.json"
+    baseline.write_text(json.dumps({"NE": 149.0}), encoding="utf-8")
+    candidate.write_text(json.dumps({"NE": 100.0}), encoding="utf-8")
+    _write_lock_manifest(lock_manifest, baseline_mean_ne=150.0)
+
+    with pytest.raises(ValueError, match="locked baseline"):
         main(
             [
                 "--baseline",
                 str(baseline),
+                "--lock-manifest",
+                str(lock_manifest),
                 "--candidate",
                 f"250={candidate}",
                 "--out",
                 str(tmp_path / "report.json"),
             ]
         )
-    except ValueError as exc:
-        assert "locked baseline" in str(exc)
-    else:
-        raise AssertionError("unlocked baseline NE was accepted")
+
+
+@pytest.mark.parametrize(
+    "manifest",
+    [
+        {},
+        {"baseline_mean_ne": 150.0},
+        {"s1_ne": 120.0},
+        {"baseline_mean_ne": "not-a-number", "s1_ne": 120.0},
+        {"baseline_mean_ne": 150.0, "s1_ne": float("nan")},
+        {"baseline_mean_ne": True, "s1_ne": 120.0},
+    ],
+)
+def test_cli_rejects_malformed_lock_manifest(tmp_path: Path, manifest: dict):
+    baseline = tmp_path / "baseline.json"
+    candidate = tmp_path / "candidate.json"
+    lock_manifest = tmp_path / "baseline_lock.manifest.json"
+    baseline.write_text(json.dumps({"NE": 150.0}), encoding="utf-8")
+    candidate.write_text(json.dumps({"NE": 100.0}), encoding="utf-8")
+    lock_manifest.write_text(json.dumps(manifest), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="lock manifest"):
+        main(
+            [
+                "--baseline",
+                str(baseline),
+                "--lock-manifest",
+                str(lock_manifest),
+                "--candidate",
+                f"250={candidate}",
+                "--out",
+                str(tmp_path / "report.json"),
+            ]
+        )
 
 
 def test_eval_script_dry_run_locks_heldout_protocol(tmp_path: Path):

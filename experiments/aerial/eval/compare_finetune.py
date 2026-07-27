@@ -7,8 +7,6 @@ import statistics
 from pathlib import Path
 from typing import Any, Mapping, Optional, Sequence
 
-S1_NE_THRESHOLD = 108.75649833236835
-LOCKED_BASELINE_NE = 135.94562291546043
 FLAT_NE_TOLERANCE = 1e-9
 FAILURE_BINS = [
     "improved_but_below_s1_margin",
@@ -89,10 +87,10 @@ def _quantization_stats(metrics: Mapping[str, Any]) -> Optional[dict[str, Any]]:
     }
 
 
-def _diagnosis(best_mean_ne: float) -> dict[str, Any]:
+def _diagnosis(best_mean_ne: float, s1_ne: float) -> dict[str, Any]:
     return {
         "best_mean_NE": best_mean_ne,
-        "s1_threshold_NE": S1_NE_THRESHOLD,
+        "s1_threshold_NE": s1_ne,
         "failure_bins": list(FAILURE_BINS),
         "instructions": (
             "Populate each failure bin from held-out episode deltas and quantization "
@@ -106,10 +104,15 @@ def _diagnosis(best_mean_ne: float) -> dict[str, Any]:
 def compare_metrics(
     baseline: Mapping[str, Any],
     candidates: Mapping[str, Mapping[str, Any]],
+    *,
+    baseline_mean_ne: float,
+    s1_ne: float,
 ) -> dict[str, Any]:
     if not candidates:
         raise ValueError("at least one candidate is required")
 
+    locked_baseline_ne = _finite_float(baseline_mean_ne, "baseline_mean_ne")
+    locked_s1_ne = _finite_float(s1_ne, "s1_ne")
     baseline_summary = _aggregate_run(baseline)
     baseline_episodes = _episode_nes(baseline)
     candidate_reports: dict[str, dict[str, Any]] = {}
@@ -144,10 +147,10 @@ def compare_metrics(
         key=lambda step: (candidate_reports[step]["mean_NE"], _step_sort_key(step)),
     )
     best_mean_ne = candidate_reports[best_step]["mean_NE"]
-    passed = best_mean_ne <= S1_NE_THRESHOLD
+    passed = best_mean_ne <= locked_s1_ne
     report: dict[str, Any] = {
-        "locked_baseline_NE": LOCKED_BASELINE_NE,
-        "s1_threshold_NE": S1_NE_THRESHOLD,
+        "locked_baseline_NE": locked_baseline_ne,
+        "s1_threshold_NE": locked_s1_ne,
         "baseline": baseline_summary,
         "candidates": candidate_reports,
         "best_step": best_step,
@@ -155,7 +158,7 @@ def compare_metrics(
         "s1_pass": passed,
     }
     if not passed:
-        report["diagnosis"] = _diagnosis(best_mean_ne)
+        report["diagnosis"] = _diagnosis(best_mean_ne, locked_s1_ne)
     return report
 
 
@@ -166,13 +169,24 @@ def _step_sort_key(step: str) -> tuple[int, Any]:
         return (1, step)
 
 
-def summarize(*, baseline_ne: float, cand: Mapping[str, float]) -> dict[str, Any]:
-    baseline = {"NE": _finite_float(baseline_ne, "baseline_ne")}
+def summarize(
+    *,
+    baseline_ne: float,
+    cand: Mapping[str, float],
+    s1_ne: float,
+) -> dict[str, Any]:
+    locked_baseline_ne = _finite_float(baseline_ne, "baseline_ne")
+    baseline = {"NE": locked_baseline_ne}
     candidates = {
         str(step): {"NE": _finite_float(ne, f"candidate {step} NE")}
         for step, ne in cand.items()
     }
-    return compare_metrics(baseline, candidates)
+    return compare_metrics(
+        baseline,
+        candidates,
+        baseline_mean_ne=locked_baseline_ne,
+        s1_ne=s1_ne,
+    )
 
 
 def _read_json(path: Path) -> dict[str, Any]:
@@ -190,6 +204,21 @@ def _write_json(path: Path, payload: Mapping[str, Any]) -> None:
         handle.write("\n")
 
 
+def _lock_thresholds(manifest: Mapping[str, Any]) -> tuple[float, float]:
+    values: dict[str, float] = {}
+    for key in ("baseline_mean_ne", "s1_ne"):
+        if key not in manifest:
+            raise ValueError(f"lock manifest missing required field {key!r}")
+        value = manifest[key]
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise ValueError(f"lock manifest field {key!r} must be a number")
+        try:
+            values[key] = _finite_float(value, f"lock manifest {key}")
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"lock manifest field {key!r} must be finite") from exc
+    return values["baseline_mean_ne"], values["s1_ne"]
+
+
 def _candidate_arg(value: str) -> tuple[str, Path]:
     if "=" not in value:
         raise argparse.ArgumentTypeError("candidate must be STEP=PATH")
@@ -202,6 +231,7 @@ def _candidate_arg(value: str) -> tuple[str, Path]:
 def _parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Compare held-out B0 fine-tune metrics")
     parser.add_argument("--baseline", required=True, type=Path)
+    parser.add_argument("--lock-manifest", required=True, type=Path)
     parser.add_argument(
         "--candidate",
         required=True,
@@ -216,21 +246,19 @@ def _parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
     args = _parse_args(argv)
-    if args.baseline.name != "step_004000.json":
-        raise ValueError(
-            f"locked baseline file must be named step_004000.json, got {args.baseline.name}"
-        )
+    lock_manifest = _read_json(args.lock_manifest)
+    locked_baseline_ne, s1_ne = _lock_thresholds(lock_manifest)
     baseline = _read_json(args.baseline)
     baseline_ne = _aggregate_run(baseline)["mean_NE"]
     if not math.isclose(
         baseline_ne,
-        LOCKED_BASELINE_NE,
+        locked_baseline_ne,
         rel_tol=0.0,
         abs_tol=1e-12,
     ):
         raise ValueError(
             "locked baseline NE mismatch: "
-            f"expected {LOCKED_BASELINE_NE}, got {baseline_ne}"
+            f"expected {locked_baseline_ne}, got {baseline_ne}"
         )
 
     candidates: dict[str, dict[str, Any]] = {}
@@ -239,7 +267,12 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             raise ValueError(f"duplicate candidate step {step!r}")
         candidates[step] = _read_json(path)
 
-    report = compare_metrics(baseline, candidates)
+    report = compare_metrics(
+        baseline,
+        candidates,
+        baseline_mean_ne=locked_baseline_ne,
+        s1_ne=s1_ne,
+    )
     _write_json(args.out, report)
     if not report["s1_pass"]:
         diagnosis_path = (
