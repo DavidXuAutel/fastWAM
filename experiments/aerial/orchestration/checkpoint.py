@@ -13,14 +13,20 @@ def is_complete_checkpoint(
     sha = Path(str(pt_path) + ".sha256")
     if not pt_path.is_file() or not sha.is_file():
         return False
-    size1 = pt_path.stat().st_size
+    try:
+        size1 = pt_path.stat().st_size
+    except FileNotFoundError:
+        return False
     if size1 < min_bytes:
         return False
     if settle_s > 0:
         time.sleep(settle_s)
         if not pt_path.is_file() or not sha.is_file():
             return False
-        size2 = pt_path.stat().st_size
+        try:
+            size2 = pt_path.stat().st_size
+        except FileNotFoundError:
+            return False
         if size1 != size2:
             return False
     return True

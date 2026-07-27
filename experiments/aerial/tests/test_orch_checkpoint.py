@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from experiments.aerial.orchestration.checkpoint import is_complete_checkpoint
 
 
@@ -68,5 +70,40 @@ def test_settle_returns_false_if_sidecar_removed(monkeypatch, tmp_path):
 
     monkeypatch.setattr(
         "experiments.aerial.orchestration.checkpoint.time.sleep", delete_sha_during_sleep
+    )
+    assert is_complete_checkpoint(pt, settle_s=0.1, min_bytes=1) is False
+
+
+def test_stat_race_returns_false(monkeypatch, tmp_path):
+    pt = tmp_path / "step_001000.pt"
+    with pt.open("wb") as handle:
+        handle.truncate(1_000_000_000)
+    (tmp_path / "step_001000.pt.sha256").write_text("deadbeef  step_001000.pt\n")
+
+    real_stat = Path.stat
+    initial_pt_stats = {"n": 0}
+
+    def stat_disappears_before_initial_read(self):
+        if self == pt:
+            initial_pt_stats["n"] += 1
+            if initial_pt_stats["n"] == 2:
+                raise FileNotFoundError(self)
+        return real_stat(self)
+
+    monkeypatch.setattr(Path, "stat", stat_disappears_before_initial_read)
+    assert is_complete_checkpoint(pt, settle_s=0.0, min_bytes=1) is False
+
+    post_settle_pt_stats = {"n": 0}
+
+    def stat_disappears_before_post_settle_read(self):
+        if self == pt:
+            post_settle_pt_stats["n"] += 1
+            if post_settle_pt_stats["n"] == 4:
+                raise FileNotFoundError(self)
+        return real_stat(self)
+
+    monkeypatch.setattr(Path, "stat", stat_disappears_before_post_settle_read)
+    monkeypatch.setattr(
+        "experiments.aerial.orchestration.checkpoint.time.sleep", lambda _: None
     )
     assert is_complete_checkpoint(pt, settle_s=0.1, min_bytes=1) is False
