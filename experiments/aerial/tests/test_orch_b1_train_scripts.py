@@ -96,7 +96,7 @@ def test_orch_b1_train_refuses_without_gates(tmp_path: Path) -> None:
     assert "gates" in (result.stderr + result.stdout).lower()
 
 
-def test_sync_h100_dry_run_targets_31660(tmp_path: Path) -> None:
+def test_sync_h100_dry_run_targets_31103(tmp_path: Path) -> None:
     checkpoint_dir = tmp_path / "checkpoint"
     checkpoint_dir.mkdir()
     checkpoint = checkpoint_dir / "step_002000.pt"
@@ -132,7 +132,7 @@ def test_sync_h100_dry_run_targets_31660(tmp_path: Path) -> None:
     assert result.returncode == 0, result.stderr + result.stdout
     assert "DRY RUN: no SSH or rsync commands executed" in result.stdout
     assert "a25689@10.239.121.22" in result.stdout
-    assert "SSH port 31660" in result.stdout
+    assert "SSH port 31103" in result.stdout
 
 
 def test_ckpt_watch_dry_run_lists_b1_steps() -> None:

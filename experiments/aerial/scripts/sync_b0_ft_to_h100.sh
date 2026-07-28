@@ -4,7 +4,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 REMOTE_HOST="${REMOTE_HOST:-a25689@10.239.121.22}"
-REMOTE_PORT="${REMOTE_PORT:-31660}"
+REMOTE_PORT="${REMOTE_PORT:-31103}"
 AERIAL_FT_CACHE="${AERIAL_FT_CACHE:-/tmp/aerial_ft_cache}"
 DRY_RUN=0
 

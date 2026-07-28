@@ -6,13 +6,14 @@ Stamp: `20260727-072347-5k-2gpu-b0-to-joint-video`
 
 | Role | SSH | Notes |
 |------|-----|-------|
-| Train / supervisor | `a25689@10.239.121.22:31660` | 2×H100; B0 train + B1 FT |
+| Train / supervisor (B0 + gates) | `a25689@10.239.121.22:31660` | Legacy B0 host; may be offline — prefer `:31103` for gates+FT |
+| B1 fine-tune (+ gates after cutover) | `a25689@10.239.121.22:31103` | 2×H100; FT sync + smoke + B1 train; orch status after `:31660` down |
 | Eval worker | `a25689@10.239.121.22:30682` | 1×H100; serial AirSim consumer |
 | AirSim renderer | `yao@10.229.20.125` RPC `41451` | Single consumer only |
 
 Do **not** touch Franka / `10.229.66.70` robot network.
 
-## Shared paths (train `:31660` and eval `:30682` do **not** share `/tmp`)
+## Shared paths (train pods and eval `:30682` do **not** share `/tmp`)
 
 Use Ceph shared orchestration roots so enqueue/worker/lock agree:
 
@@ -56,7 +57,7 @@ nohup bash experiments/aerial/scripts/orch_eval_worker.sh \
 
 7. Verify lock dir `/tmp/aerial_eval_cache/orchestration/eval_worker.lock` exists and only one worker is alive.
 
-## Train host (`:31660`)
+## Train host (`:31660` — B0 / gates / supervisor)
 
 1. Mirror orchestration status root:
    - `/tmp/aerial_cache/orchestration/`
@@ -74,6 +75,15 @@ nohup bash experiments/aerial/scripts/orch_supervisor.sh \
 4. Watch `/tmp/aerial_cache/orchestration/status.json` for phase advances.
 5. Confirm step_001000 seen-20 metrics are reused (not re-run) when already present.
 6. Confirm no second AirSim client appears on the renderer while the eval worker is active.
+
+## B1 fine-tune host (`:31103`)
+
+1. `sync_b0_ft_to_h100.sh` defaults to `REMOTE_PORT=31103` → `/tmp/aerial_ft_cache`.
+2. Mirror gate artifacts needed by `orch_b1_train.sh` onto `:31103`:
+   - `/tmp/aerial_cache/orchestration/status.json` (must show `gates_passed` / `RUN_B1_TRAIN`)
+   - `/tmp/aerial_cache/orchestration/baseline_lock.manifest.json`
+3. Run 1-step / 10-step smoke on `:31103`, then `orch_b1_train.sh` there (not on `:31660`).
+4. Checkpoint watch / B1 eval enqueue can remain driven from shared results + eval `:30682`.
 
 ## Arming gates before B1
 
