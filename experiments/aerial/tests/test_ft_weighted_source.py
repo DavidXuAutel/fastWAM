@@ -122,38 +122,82 @@ def test_ft_source_monitor_logs_counts_and_accepts_valid_window(caplog):
 
 
 @pytest.mark.parametrize("correction_steps", [39, 61])
-def test_ft_source_monitor_rejects_out_of_range_window(correction_steps):
+def test_ft_source_monitor_warns_single_out_of_range_window(correction_steps, caplog):
     monitor = FTSourceMonitor(
         correction_name="correction",
         log_every=50,
         window_steps=200,
         min_correction_rate=0.20,
         max_correction_rate=0.30,
+        max_consecutive_violations=3,
     )
 
-    with pytest.raises(RuntimeError, match="correction rate"):
+    # A single out-of-band window warns but must not abort the run.
+    with caplog.at_level(logging.WARNING):
         for step in range(1, 201):
             source = "correction" if step <= correction_steps else "original"
             monitor.record([source], step=step)
 
+    assert "consecutive 1/3" in caplog.text
 
-def test_ft_source_monitor_skips_partial_window_after_resume():
-    monitor = FTSourceMonitor(
-        correction_name="correction",
-        log_every=50,
-        window_steps=200,
-        min_correction_rate=0.20,
-        max_correction_rate=0.30,
-    )
+
+def test_ft_source_monitor_resets_streak_on_healthy_window():
+    monitor = FTSourceMonitor(window_steps=200, max_consecutive_violations=3)
+
+    # bad, bad, good, bad, bad — never three consecutive, so no failure.
+    corrections_per_window = [34, 34, 50, 34, 34]
+    step = 0
+    for corrections in corrections_per_window:
+        for within in range(1, 201):
+            step += 1
+            source = "correction" if within <= corrections else "original"
+            monitor.record([source], step=step)
+
+
+def test_ft_source_monitor_fails_after_consecutive_violations():
+    monitor = FTSourceMonitor(window_steps=200, max_consecutive_violations=3)
+
+    with pytest.raises(RuntimeError, match="3 consecutive"):
+        for step in range(1, 601):  # three windows all at 0.17 correction
+            source = "correction" if (step - 1) % 200 < 34 else "original"
+            monitor.record([source], step=step)
+
+
+def test_ft_source_monitor_skips_partial_window_after_resume(caplog):
+    monitor = FTSourceMonitor(window_steps=200, max_consecutive_violations=3)
     monitor.reset(start_step=150)
 
-    for step in range(151, 201):
-        monitor.record(["original"], step=step)
+    with caplog.at_level(logging.INFO):
+        for step in range(151, 201):
+            monitor.record(["original"], step=step)
 
-    with pytest.raises(RuntimeError, match="steps 201-400"):
-        for step in range(201, 401):
-            source = "correction" if step < 240 else "original"
+    # The partial resumed window is skipped, not counted as a violation.
+    assert "skipping partial resumed source window steps=151-200" in caplog.text
+
+    with pytest.raises(RuntimeError, match="consecutive"):
+        for step in range(201, 801):  # three full out-of-band windows
+            source = "correction" if (step - 1) % 200 < 39 else "original"
             monitor.record([source], step=step)
+
+
+def test_weighted_source_dataset_deterministic_holds_quota_every_window():
+    dataset = WeightedSourceDataset(
+        datasets=[TinyDataset("original"), TinyDataset("correction")],
+        probs=[0.75, 0.25],
+        names=["original", "correction"],
+        generator=torch.Generator().manual_seed(0),
+        deterministic=True,
+    )
+
+    sources = [dataset[index]["data_source"] for index in range(1_000)]
+
+    # Every aligned 200-window holds the exact 25% quota...
+    for start in range(0, 1_000, 200):
+        assert sources[start : start + 200].count("correction") == 50
+    # ...and any contiguous window stays within one of the target, so a
+    # mid-run resume at any offset cannot drift the monitored rate.
+    for start in range(0, 801):
+        assert 49 <= sources[start : start + 200].count("correction") <= 51
 
 
 def test_trainer_records_collated_data_sources():

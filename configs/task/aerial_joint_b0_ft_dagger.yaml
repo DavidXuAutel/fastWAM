@@ -34,3 +34,5 @@ source_monitor:
   window_steps: 200
   min_correction_rate: 0.20
   max_correction_rate: 0.30
+  # Warn on a single noisy window; only fail the run on sustained drift.
+  max_consecutive_violations: 3

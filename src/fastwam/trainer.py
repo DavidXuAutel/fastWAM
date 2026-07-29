@@ -90,8 +90,35 @@ class Wan22Trainer:
         proprio_encoder = getattr(self.model, "proprio_encoder", None)
         if proprio_encoder is not None:
             trainable_params.extend(list(proprio_encoder.parameters()))
+        # nanfix: split huge DiT params into AdamW groups (<=~1B elems each).
+        max_elems = int(getattr(self.cfg, "optimizer_max_params_per_group", 1_000_000_000))
+        param_groups = []
+        current_group = []
+        current_numel = 0
+        total_numel = 0
+        for param in trainable_params:
+            if not param.requires_grad:
+                continue
+            numel = int(param.numel())
+            total_numel += numel
+            if current_group and current_numel + numel > max_elems:
+                param_groups.append({"params": current_group})
+                current_group = []
+                current_numel = 0
+            current_group.append(param)
+            current_numel += numel
+        if current_group:
+            param_groups.append({"params": current_group})
+        if not param_groups:
+            raise RuntimeError("no trainable parameters found for AdamW")
+        logger.info(
+            "nanfix AdamW groups=%d total_trainable_params=%.2fB max_elems_per_group=%d",
+            len(param_groups),
+            total_numel / 1e9,
+            max_elems,
+        )
         self.optimizer = torch.optim.AdamW(
-            trainable_params,
+            param_groups,
             lr=self.learning_rate,
             weight_decay=self.weight_decay,
             betas=(0.9, 0.95),
@@ -278,11 +305,53 @@ class Wan22Trainer:
         eta_m, eta_s = divmod(eta_rem, 60)
         return f"{eta_h:02d}:{eta_m:02d}:{eta_s:02d}", steps_per_sec
 
+    # Residual pre-v2 aerial artifacts that v2 (trained from scratch) must never
+    # bootstrap from — resuming them silently reintroduces the corrupted-normalizer
+    # / stale-weight failures v2 was designed to eliminate.
+    _DEFAULT_LEGACY_RESUME_DENY = ("m1b-20260722-012926", "step_000500.pt")
+
+    def _assert_resume_allowed(self, resume_path: Path) -> None:
+        """Refuse to resume v2 training from a pre-v2 aerial checkpoint.
+
+        Override intentionally with ``AERIAL_ALLOW_LEGACY_RESUME=1`` or
+        ``cfg.allow_legacy_resume=true``.
+        """
+
+        if os.environ.get("AERIAL_ALLOW_LEGACY_RESUME") == "1" or bool(
+            getattr(self.cfg, "allow_legacy_resume", False)
+        ):
+            logger.warning("Legacy resume guard bypassed for %s", resume_path)
+            return
+
+        text = str(resume_path)
+        deny = tuple(
+            getattr(self.cfg, "resume_deny_patterns", self._DEFAULT_LEGACY_RESUME_DENY) or ()
+        )
+        hit = next((pattern for pattern in deny if pattern and pattern in text), None)
+        if hit is not None:
+            raise RuntimeError(
+                "Refusing to resume v2 training from a pre-v2 aerial checkpoint "
+                f"(matched {hit!r} in {text}). v2 trains from scratch; set "
+                "AERIAL_ALLOW_LEGACY_RESUME=1 to override."
+            )
+
+        # Optional positive provenance check (off until the v2 save-side marks
+        # checkpoints): require a `.v2` sidecar or a v2 marker in the path.
+        if bool(getattr(self.cfg, "require_v2_resume_provenance", False)):
+            markers = tuple(getattr(self.cfg, "resume_v2_markers", ("v2",)) or ())
+            has_marker = Path(text + ".v2").exists() or any(m in text for m in markers)
+            if not has_marker:
+                raise RuntimeError(
+                    f"Resume checkpoint {text} lacks v2 provenance (no .v2 sidecar "
+                    "or v2 path marker). Set AERIAL_ALLOW_LEGACY_RESUME=1 to override."
+                )
+
     def _resume_or_load_checkpoint(self):
         resume = self.resume
         if not resume:
             return
         resume_path = Path(str(resume))
+        self._assert_resume_allowed(resume_path)
         if resume_path.is_dir():
             logger.info("Resuming full training state from directory: %s", resume)
             self.load_training_state(str(resume_path))
@@ -291,7 +360,18 @@ class Wan22Trainer:
             raise FileNotFoundError(f"Resume checkpoint not found: {resume}")
         logger.info("Loading weight checkpoint only: %s", resume)
         self.accelerator.unwrap_model(self.model).load_checkpoint(str(resume_path), optimizer=None)
-        logger.warning("Loaded .pt weights only; optimizer/scheduler/step were not restored under ZeRO2.")
+        match = re.search(r"step[_-](\d+)\.pt$", resume_path.name)
+        if match:
+            self.global_step = int(match.group(1))
+            logger.warning(
+                "Loaded .pt weights only; optimizer/scheduler were not restored under ZeRO2. "
+                "Continuing step counter from filename: global_step=%d",
+                self.global_step,
+            )
+        else:
+            logger.warning(
+                "Loaded .pt weights only; optimizer/scheduler/step were not restored under ZeRO2."
+            )
 
     def _set_dit_only_train_mode(self):
         # Match DiffSynth's freeze_except("dit"): only DiT stays trainable/in-train-mode.
