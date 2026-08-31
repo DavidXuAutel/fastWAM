@@ -1,0 +1,29 @@
+#!/usr/bin/env expect -f
+# Usage: SSHPASS=... ./sync_isaac_sim_to_remote.expect <user> <host> <local_isaac_genie_g1_sim_dir>
+if {![info exists env(SSHPASS)]} { puts stderr "Set SSHPASS"; exit 2 }
+set pass $env(SSHPASS)
+set user [lindex $argv 0]
+set host [lindex $argv 1]
+set local_dir [lindex $argv 2]
+if {$user eq "" || $host eq "" || $local_dir eq ""} {
+  puts stderr "usage: SSHPASS=... $argv0 <user> <host> <path/to/isaac_genie_g1_sim>"
+  exit 2
+}
+set timeout -1
+spawn scp -o StrictHostKeyChecking=accept-new -r $local_dir ${user}@${host}:~/isaac_genie_g1_sim
+expect {
+  -re "(?i)password:" { send "$pass\r"; exp_continue }
+  eof
+}
+# deps + volumes only (pull is huge — run manually on server in tmux)
+spawn ssh -o StrictHostKeyChecking=accept-new ${user}@${host} bash /home/$user/isaac_genie_g1_sim/install_isaac_sim_docker_ubuntu.sh deps
+expect {
+  -re "(?i)password:" { send "$pass\r"; exp_continue }
+  eof
+}
+spawn ssh -o StrictHostKeyChecking=accept-new ${user}@${host} bash /home/$user/isaac_genie_g1_sim/install_isaac_sim_docker_ubuntu.sh volumes
+expect {
+  -re "(?i)password:" { send "$pass\r"; exp_continue }
+  eof
+}
+puts "\nNext on server (tmux recommended):\n  bash ~/isaac_genie_g1_sim/install_isaac_sim_docker_ubuntu.sh pull\n  bash ~/docker/isaac-sim/run_isaac_bash_interactive.sh\n"

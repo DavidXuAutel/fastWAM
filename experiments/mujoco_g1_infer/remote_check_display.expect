@@ -1,0 +1,11 @@
+#!/usr/bin/env expect -f
+if {![info exists env(SSHPASS)]} { exit 2 }
+set pass $env(SSHPASS)
+set host [lindex $argv 0]
+if {$host eq ""} { set host "10.229.66.70" }
+set timeout 20
+spawn ssh -o StrictHostKeyChecking=accept-new yao@${host} sh -c {echo DISPLAY_env=$DISPLAY; who; command -v xvfb-run || true; ls /tmp/.X11-unix 2>/dev/null || true}
+expect {
+  -re "(?i)password:" { send "$pass\r"; exp_continue }
+  eof
+}

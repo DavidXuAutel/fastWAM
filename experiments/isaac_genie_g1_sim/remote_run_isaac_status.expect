@@ -1,0 +1,18 @@
+#!/usr/bin/env expect -f
+# Usage: SSHPASS=... ./remote_run_isaac_status.expect [host]
+if {![info exists env(SSHPASS)]} { puts stderr "Set SSHPASS"; exit 2 }
+set pass $env(SSHPASS)
+set host [lindex $argv 0]
+if {$host eq ""} { set host "10.229.66.70" }
+set timeout 90
+set script_dir [file dirname [info script]]
+spawn scp -o StrictHostKeyChecking=accept-new [file join $script_dir isaac_remote_status.sh] yao@${host}:~/isaac_genie_g1_sim/isaac_remote_status.sh
+expect {
+  -re "(?i)password:" { send "$pass\r"; exp_continue }
+  eof
+}
+spawn ssh -o StrictHostKeyChecking=accept-new yao@${host} bash /home/yao/isaac_genie_g1_sim/isaac_remote_status.sh
+expect {
+  -re "(?i)password:" { send "$pass\r"; exp_continue }
+  eof
+}

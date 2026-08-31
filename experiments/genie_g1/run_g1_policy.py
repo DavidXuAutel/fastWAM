@@ -23,6 +23,9 @@ Example
      --instruction "pick up the cup" \\
      --sim-cfg-name sim_robotwin.yaml \\
      --g1-ip 10.229.66.60
+
+   # 若 GDK ``/camera/hand_*_color`` 无数据，可用桌面 lkx 扫描中的 HDAS 腕部 JPEG + 头鱼眼：
+   python experiments/genie_g1/run_g1_policy.py ... --camera-profile hdas
 """
 
 from __future__ import annotations
@@ -120,6 +123,20 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument("--topic-head-rgb", default="/camera/head_color")
     p.add_argument("--topic-left-rgb", default="/camera/hand_left_color")
     p.add_argument("--topic-right-rgb", default="/camera/hand_right_color")
+    p.add_argument(
+        "--camera-profile",
+        choices=("gdk", "hdas"),
+        default="gdk",
+        help="gdk=GDK sensor_msgs/Image defaults; hdas=CompressedImage on head fisheye + HDAS wrist (lkx_ws_v1 / on-robot topic scans).",
+    )
+    p.add_argument(
+        "--camera-head-transport",
+        choices=("raw", "compressed"),
+        default=None,
+        help="Override per-stream transport (default: from --camera-profile).",
+    )
+    p.add_argument("--camera-left-transport", choices=("raw", "compressed"), default=None)
+    p.add_argument("--camera-right-transport", choices=("raw", "compressed"), default=None)
     p.add_argument("--topic-arm-state", default="/hal/arm_joint_state")
     p.add_argument("--topic-arm-cmd", default="/wbc/arm_command")
     p.add_argument("--topic-left-ee-cmd", default="/wbc/left_ee_command")
@@ -159,6 +176,29 @@ def _parse_args() -> argparse.Namespace:
     return p.parse_args()
 
 
+def _camera_transport_from_args(args: argparse.Namespace) -> tuple[str, str, str]:
+    """Return (head, left, right) each 'raw' or 'compressed'."""
+    if args.camera_profile == "hdas":
+        head, left, right = "compressed", "compressed", "compressed"
+    else:
+        head, left, right = "raw", "raw", "raw"
+    if args.camera_head_transport is not None:
+        head = args.camera_head_transport
+    if args.camera_left_transport is not None:
+        left = args.camera_left_transport
+    if args.camera_right_transport is not None:
+        right = args.camera_right_transport
+    return head, left, right
+
+
+def _apply_camera_profile_to_topics(args: argparse.Namespace) -> None:
+    if args.camera_profile != "hdas":
+        return
+    args.topic_head_rgb = "/camera/head_center_fisheye"
+    args.topic_left_rgb = "/hdas/camera_wrist_left/color/image_rect_raw/compressed"
+    args.topic_right_rgb = "/hdas/camera_wrist_right/color/image_rect_raw/compressed"
+
+
 def _maybe_enter_servo_mode() -> None:
     try:
         import rclpy
@@ -184,6 +224,8 @@ def _maybe_enter_servo_mode() -> None:
 
 def main() -> None:
     args = _parse_args()
+    _apply_camera_profile_to_topics(args)
+    cam_head_t, cam_left_t, cam_right_t = _camera_transport_from_args(args)
 
     sys.path.insert(0, str(PROJECT_ROOT))
     sys.path.insert(0, str(PROJECT_ROOT / "src"))
@@ -242,6 +284,9 @@ def main() -> None:
         gripper_close_mm=args.gripper_close_mm,
         wbc_max_delta_rad=args.wbc_max_delta_rad,
         arm_command_rate_hz=args.arm_cmd_rate_hz,
+        camera_head_transport=cam_head_t,
+        camera_left_transport=cam_left_t,
+        camera_right_transport=cam_right_t,
     )
 
     try:

@@ -1,0 +1,27 @@
+services:
+  ros2-humble:
+    image: fastwam-ros2-humble:latest
+    build:
+      context: .
+      dockerfile: docker/ros2_humble/Dockerfile
+      args:
+        USER_UID: ${HOST_UID:-1000}
+        USER_GID: ${HOST_GID:-1000}
+    container_name: fastwam-ros2-humble
+    working_dir: /fastwam
+    stdin_open: true
+    tty: true
+    environment:
+      ROS_DISTRO: humble
+      ROS_HUMBLE_PREFIX: /opt/ros/humble
+      RMW_IMPLEMENTATION: ${RMW_IMPLEMENTATION:-rmw_fastrtps_cpp}
+      ROS_DOMAIN_ID: ${ROS_DOMAIN_ID:-0}
+      FASTRTPS_DEFAULT_PROFILES_FILE: ${FASTRTPS_DEFAULT_PROFILES_FILE:-}
+      CYCLONEDDS_URI: ${CYCLONEDDS_URI:-}
+    volumes:
+      - .:/fastwam
+      - ros2-humble-home:/home/fastwam
+    command: /bin/bash
+
+volumes:
+  ros2-humble-home:

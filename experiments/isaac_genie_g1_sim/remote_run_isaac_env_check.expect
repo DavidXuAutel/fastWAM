@@ -1,0 +1,32 @@
+#!/usr/bin/env expect -f
+# Usage: SSHPASS=... ./remote_run_isaac_env_check.expect [host]
+# Uploads isaac_env_check.sh, runs it (tee to remote log), downloads log so output is never swallowed.
+if {![info exists env(SSHPASS)]} { puts stderr "Set SSHPASS"; exit 2 }
+set pass $env(SSHPASS)
+set host [lindex $argv 0]
+if {$host eq ""} { set host "10.229.66.70" }
+# Step 5 may pull ubuntu:22.04; full check can run 30–60+ minutes
+set timeout 7200
+set sd [file dirname [info script]]
+set chk [file join $sd isaac_env_check.sh]
+set wrap [file join $sd isaac_env_check_remote_wrap.sh]
+set locallog [file join $sd isaac_env_check_last.log]
+
+spawn scp -o StrictHostKeyChecking=accept-new $chk $wrap yao@${host}:~/isaac_genie_g1_sim/
+expect { -re "(?i)password:" { send "$pass\r"; exp_continue } eof }
+
+# No pipes on ssh argv (expect spawn splits `bash -c ...|...` incorrectly).
+spawn ssh -o StrictHostKeyChecking=accept-new yao@${host} bash /home/yao/isaac_genie_g1_sim/isaac_env_check_remote_wrap.sh
+expect { -re "(?i)password:" { send "$pass\r"; exp_continue } eof }
+
+spawn scp -o StrictHostKeyChecking=accept-new yao@${host}:isaac_genie_g1_sim/isaac_env_check_last.log $locallog
+expect { -re "(?i)password:" { send "$pass\r"; exp_continue } eof }
+
+if {[file readable $locallog]} {
+  set f [open $locallog r]
+  puts [read $f]
+  close $f
+} else {
+  puts stderr "No local log at $locallog (scp failed?)"
+  exit 1
+}

@@ -1,0 +1,22 @@
+#!/usr/bin/env expect -f
+set timeout 120
+set base /Users/xudazhong/Projects/FastWAM/experiments/genie_g1
+
+spawn scp -o StrictHostKeyChecking=no $base/g1_arm_joint_delta.py $base/g1_run_arm_delta_root.sh agi@10.229.66.60:/tmp/
+expect {
+  -re "(?i)password:" { send "1\r"; exp_continue }
+  eof
+}
+
+spawn ssh -o StrictHostKeyChecking=no agi@10.229.66.60 chmod +x /tmp/g1_run_arm_delta_root.sh
+expect {
+  -re "(?i)password:" { send "1\r"; exp_continue }
+  eof
+}
+
+# Default: left arm +5° on local joint 1. Add --joint-name-substr or --joint-index on the line below.
+spawn ssh -o StrictHostKeyChecking=no agi@10.229.66.60 {echo 1 | sudo -S env -i HOME=/root PATH=/opt/ros/humble/bin:/usr/bin:/bin bash /tmp/g1_run_arm_delta_root.sh --delta-deg 5 --side left --joint-index 1}
+expect {
+  -re "(?i)password:" { send "1\r"; exp_continue }
+  eof
+}

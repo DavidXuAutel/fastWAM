@@ -11,6 +11,11 @@ Implements the minimal ``TASK_ENV`` surface used by
 Default topic names match the GDK PDF (ROS2):
 
 - ``/camera/head_color``, ``/camera/hand_left_color``, ``/camera/hand_right_color``
+  (``sensor_msgs/Image``). On many G1 images these are absent; the desktop ``lkx_ws_v1``
+  scans show **HDAS wrist** streams as ``sensor_msgs/CompressedImage``, e.g.
+  ``/hdas/camera_wrist_left/color/image_rect_raw/compressed``, and head **fisheye**
+  compressed topics under ``/camera/head_*_fisheye``. Use ``camera_*_transport``
+  ``"compressed"`` plus those topic names (see ``run_g1_policy.py --camera-profile hdas``).
 - ``/hal/arm_joint_state`` (14 positions: left 7 + right 7, radians)
 - Command: ``/wbc/arm_command`` (``sensor_msgs/JointState``), with optional
   per-step delta clamp (GDK notes ~0.2618 rad max step vs feedback).
@@ -35,11 +40,11 @@ try:
         QoSProfile,
         ReliabilityPolicy,
     )
-    from sensor_msgs.msg import Image, JointState  # type: ignore[import-not-found]
+    from sensor_msgs.msg import CompressedImage, Image, JointState  # type: ignore[import-not-found]
 except ImportError as exc:  # pragma: no cover - ROS optional at dev time
     rclpy = None  # type: ignore[assignment]
     Node = object  # type: ignore[misc, assignment]
-    Image = JointState = None  # type: ignore[assignment]
+    CompressedImage = Image = JointState = None  # type: ignore[assignment]
     QoSProfile = ReliabilityPolicy = HistoryPolicy = DurabilityPolicy = None  # type: ignore[assignment]
     _ROS_IMPORT_ERROR = exc
 else:
@@ -52,7 +57,7 @@ def _require_ros() -> None:
             "ROS2 Python bindings are required for Genie G1 deployment. "
             "Install packages (e.g. Ubuntu: `sudo apt install ros-humble-rclpy ros-humble-sensor-msgs`) "
             "and from the FastWAM repo root run: `source scripts/env_ros2_humble.sh`. "
-            "The bridge uses rclpy, sensor_msgs (Image, JointState), and rclpy.qos (QoSProfile)."
+            "The bridge uses rclpy, sensor_msgs (Image, CompressedImage, JointState), and rclpy.qos."
         ) from _ROS_IMPORT_ERROR
 
 
@@ -74,6 +79,37 @@ def image_msg_to_rgb(msg: Any) -> np.ndarray:
             f"(supported: rgb8, bgr8, mono8)."
         )
     return np.ascontiguousarray(arr)
+
+
+def compressed_image_msg_to_rgb(msg: Any) -> np.ndarray:
+    """Decode ``sensor_msgs/CompressedImage`` (typically JPEG) to HxWx3 uint8 RGB."""
+    raw = bytes(bytearray(msg.data)) if msg.data is not None else b""
+    if len(raw) < 2:
+        raise ValueError("empty CompressedImage.data")
+
+    try:
+        import cv2  # type: ignore
+
+        arr = np.frombuffer(raw, dtype=np.uint8)
+        bgr = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+        if bgr is None:
+            raise ValueError("cv2.imdecode failed (not a JPEG/PNG buffer?)")
+        return np.ascontiguousarray(bgr[:, :, ::-1])
+    except ImportError:
+        pass
+
+    try:
+        from io import BytesIO
+
+        from PIL import Image as PILImage  # type: ignore
+
+        im = PILImage.open(BytesIO(raw)).convert("RGB")
+        return np.ascontiguousarray(np.asarray(im, dtype=np.uint8))
+    except Exception as exc:  # pragma: no cover
+        raise ValueError(
+            "CompressedImage decode needs opencv-python (cv2) or Pillow. "
+            f"Pillow fallback failed: {exc}"
+        ) from exc
 
 
 class GenieG1TaskEnv(Node):  # type: ignore[misc, valid-type]
@@ -102,6 +138,9 @@ class GenieG1TaskEnv(Node):  # type: ignore[misc, valid-type]
         wbc_max_delta_rad: float = 0.25,
         arm_command_rate_hz: float = 50.0,
         qos_depth: int = 5,
+        camera_head_transport: str = "raw",
+        camera_left_transport: str = "raw",
+        camera_right_transport: str = "raw",
     ) -> None:
         _require_ros()
         super().__init__("fastwam_genie_g1_bridge")
@@ -123,6 +162,18 @@ class GenieG1TaskEnv(Node):  # type: ignore[misc, valid-type]
         self._left_grip_mm: Optional[float] = None
         self._right_grip_mm: Optional[float] = None
 
+        def _norm_transport(x: str) -> str:
+            t = str(x).strip().lower()
+            if t in ("raw", "image", "uncompressed"):
+                return "raw"
+            if t in ("compressed", "jpeg", "jpg", "compressedimage"):
+                return "compressed"
+            raise ValueError(f"camera_*_transport must be raw|compressed, got {x!r}")
+
+        self._cam_t_head = _norm_transport(camera_head_transport)
+        self._cam_t_left = _norm_transport(camera_left_transport)
+        self._cam_t_right = _norm_transport(camera_right_transport)
+
         qos = QoSProfile(
             reliability=ReliabilityPolicy.BEST_EFFORT,
             durability=DurabilityPolicy.VOLATILE,
@@ -130,9 +181,9 @@ class GenieG1TaskEnv(Node):  # type: ignore[misc, valid-type]
             depth=int(qos_depth),
         )
 
-        self.create_subscription(Image, topic_head_rgb, self._cb_head, qos)
-        self.create_subscription(Image, topic_left_rgb, self._cb_left, qos)
-        self.create_subscription(Image, topic_right_rgb, self._cb_right, qos)
+        self._subscribe_image_slot("head", topic_head_rgb, self._cam_t_head, qos)
+        self._subscribe_image_slot("left", topic_left_rgb, self._cam_t_left, qos)
+        self._subscribe_image_slot("right", topic_right_rgb, self._cam_t_right, qos)
         self.create_subscription(JointState, topic_arm_joint_state, self._cb_arm, qos)
 
         self._pub_arm = self.create_publisher(JointState, topic_arm_command, 10)
@@ -146,13 +197,32 @@ class GenieG1TaskEnv(Node):  # type: ignore[misc, valid-type]
             self._try_subscribe_ee_state(topic_right_ee_state, "right")
 
         self.get_logger().info(
-            "GenieG1TaskEnv | head=%s left=%s right=%s arm_state=%s arm_cmd=%s",
-            topic_head_rgb,
-            topic_left_rgb,
-            topic_right_rgb,
-            topic_arm_joint_state,
-            topic_arm_command,
+            f"GenieG1TaskEnv | head={topic_head_rgb}({self._cam_t_head}) "
+            f"left={topic_left_rgb}({self._cam_t_left}) right={topic_right_rgb}({self._cam_t_right}) "
+            f"arm_state={topic_arm_joint_state} arm_cmd={topic_arm_command}"
         )
+
+    def _subscribe_image_slot(self, slot: str, topic: str, transport: str, qos: Any) -> None:
+        if transport == "raw":
+            self.create_subscription(Image, topic, self._make_rgb_cb(slot, compressed=False), qos)
+        else:
+            self.create_subscription(
+                CompressedImage, topic, self._make_rgb_cb(slot, compressed=True), qos
+            )
+
+    def _make_rgb_cb(self, slot: str, *, compressed: bool):
+        def _cb(msg: Any) -> None:
+            self._decode_rgb_slot(slot, msg, compressed=compressed)
+
+        return _cb
+
+    def _decode_rgb_slot(self, slot: str, msg: Any, *, compressed: bool) -> None:
+        try:
+            rgb = compressed_image_msg_to_rgb(msg) if compressed else image_msg_to_rgb(msg)
+        except ValueError:
+            return
+        with self._lock:
+            self._rgb[slot] = rgb
 
     def _try_subscribe_ee_state(self, topic: str, side: str) -> None:
         """Subscribe to genie_msgs/EndState if the message class exists."""
@@ -190,54 +260,35 @@ class GenieG1TaskEnv(Node):  # type: ignore[misc, valid-type]
                 pass
         return None
 
-    def _cb_head(self, msg: Any) -> None:
-        try:
-            img = image_msg_to_rgb(msg)
-        except ValueError:
-            return
-        with self._lock:
-            self._rgb["head"] = img
-
-    def _cb_left(self, msg: Any) -> None:
-        try:
-            img = image_msg_to_rgb(msg)
-        except ValueError:
-            return
-        with self._lock:
-            self._rgb["left"] = img
-
-    def _cb_right(self, msg: Any) -> None:
-        try:
-            img = image_msg_to_rgb(msg)
-        except ValueError:
-            return
-        with self._lock:
-            self._rgb["right"] = img
-
     def _cb_arm(self, msg: Any) -> None:
         if not msg.position:
             return
         with self._lock:
             self._arm_q = np.asarray(msg.position, dtype=np.float64)
 
-    def wait_for_observation(self, timeout_sec: float = 30.0) -> None:
+    def wait_for_observation(
+        self, timeout_sec: float = 30.0, *, require_cameras: bool = True
+    ) -> None:
         deadline = time.monotonic() + float(timeout_sec)
         while time.monotonic() < deadline:
             rclpy.spin_once(self, timeout_sec=0.05)
             with self._lock:
-                ok = (
-                    self._rgb["head"] is not None
-                    and self._rgb["left"] is not None
-                    and self._rgb["right"] is not None
-                    and self._arm_q is not None
-                    and self._arm_q.size >= self._left_arm_dof + self._right_arm_dof
+                arm_ok = self._arm_q is not None and self._arm_q.size >= (
+                    self._left_arm_dof + self._right_arm_dof
                 )
+                if require_cameras:
+                    ok = (
+                        self._rgb["head"] is not None
+                        and self._rgb["left"] is not None
+                        and self._rgb["right"] is not None
+                        and arm_ok
+                    )
+                else:
+                    ok = arm_ok
             if ok:
                 return
-        raise TimeoutError(
-            f"No full observation within {timeout_sec}s "
-            "(need head/left/right RGB and arm joint state)."
-        )
+        need = "head/left/right RGB and arm joint state" if require_cameras else "arm joint state only"
+        raise TimeoutError(f"No full observation within {timeout_sec}s (need {need}).")
 
     def get_instruction(self) -> str:
         return self._instruction

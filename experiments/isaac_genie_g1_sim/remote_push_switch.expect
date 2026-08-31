@@ -1,0 +1,9 @@
+#!/usr/bin/env expect -f
+if {![info exists env(SSHPASS)]} { exit 2 }
+set pass $env(SSHPASS)
+set host [lindex $argv 0]
+if {$host eq ""} { set host "10.229.66.70" }
+set sd [file dirname [info script]]
+set timeout 60
+spawn scp -o StrictHostKeyChecking=accept-new [file join $sd switch_stop_mujoco_start_isaac.sh] yao@${host}:~/isaac_genie_g1_sim/switch_stop_mujoco_start_isaac.sh
+expect { -re "(?i)password:" { send "$pass\r"; exp_continue } eof }

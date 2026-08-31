@@ -242,3 +242,5 @@ manifest.json
 wandb/
 onelogger.err
 onelogger.log
+.worktrees/
+experiments/genie_g1/logs/

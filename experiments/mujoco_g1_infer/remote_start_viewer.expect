@@ -1,0 +1,15 @@
+#!/usr/bin/env expect -f
+# Usage: SSHPASS=... ./remote_start_viewer.expect [host] [display e.g. :0]
+if {![info exists env(SSHPASS)]} { puts stderr "export SSHPASS first"; exit 2 }
+set pass $env(SSHPASS)
+set host [lindex $argv 0]
+if {$host eq ""} { set host "10.229.66.70" }
+set disp [lindex $argv 1]
+# Remote desktop often :1 (see `who`); :0 often fails for SSH sessions.
+if {$disp eq ""} { set disp ":1" }
+set timeout 60
+spawn ssh -o StrictHostKeyChecking=accept-new yao@${host} bash /home/yao/mujoco_g1_infer/remote_viewer_cmd.sh $disp
+expect {
+  -re "(?i)password:" { send "$pass\r"; exp_continue }
+  eof
+}

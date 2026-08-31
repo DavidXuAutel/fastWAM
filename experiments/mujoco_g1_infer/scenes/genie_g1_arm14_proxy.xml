@@ -1,0 +1,76 @@
+<mujoco model="genie_g1_arm14_proxy">
+  <!-- Kinematic-only proxy: 14 hinge joints in HAL order (left7 then right7).
+       For real Genie G01 appearance/meshes, replace with vendor MJCF and update joint_names_14.txt. -->
+  <compiler angle="radian" autolimits="true"/>
+  <option gravity="0 0 -9.81" integrator="implicitfast"/>
+  <visual>
+    <global offwidth="1024" offheight="768"/>
+  </visual>
+  <asset>
+    <texture name="grid" type="2d" builtin="checker" width="512" height="512" rgb1=".1 .2 .3" rgb2=".2 .3 .4"/>
+    <material name="grid" texture="grid" texrepeat="8 8" reflectance="0.1"/>
+  </asset>
+  <worldbody>
+    <light pos="0 0 3" dir="0 0 -1" diffuse="0.8 0.8 0.8"/>
+    <geom name="floor" type="plane" size="3 3 0.01" material="grid"/>
+    <body name="torso" pos="0 0 1.0">
+      <geom type="box" size="0.12 0.08 0.15" rgba="0.2 0.5 0.8 1" mass="5"/>
+      <body name="l0" pos="0.15 0.1 0.1">
+        <joint name="g1_hal_joint_00" type="hinge" axis="0 0 1" limited="true" range="-3.14 3.14" damping="0.5"/>
+        <geom type="capsule" fromto="0 0 0 0.1 0 0" size="0.03" rgba="0.9 0.3 0.2 1"/>
+        <body name="l1" pos="0.1 0 0">
+          <joint name="g1_hal_joint_01" type="hinge" axis="0 1 0" limited="true" range="-3.14 3.14" damping="0.5"/>
+          <geom type="capsule" fromto="0 0 0 0.1 0 0" size="0.028" rgba="0.9 0.35 0.2 1"/>
+          <body name="l2" pos="0.1 0 0">
+            <joint name="g1_hal_joint_02" type="hinge" axis="0 0 1" limited="true" range="-3.14 3.14" damping="0.5"/>
+            <geom type="capsule" fromto="0 0 0 0.09 0 0" size="0.026" rgba="0.9 0.4 0.2 1"/>
+            <body name="l3" pos="0.09 0 0">
+              <joint name="g1_hal_joint_03" type="hinge" axis="0 1 0" limited="true" range="-3.14 3.14" damping="0.5"/>
+              <geom type="capsule" fromto="0 0 0 0.08 0 0" size="0.024" rgba="0.9 0.45 0.2 1"/>
+              <body name="l4" pos="0.08 0 0">
+                <joint name="g1_hal_joint_04" type="hinge" axis="0 0 1" limited="true" range="-3.14 3.14" damping="0.5"/>
+                <geom type="capsule" fromto="0 0 0 0.07 0 0" size="0.022" rgba="0.9 0.5 0.2 1"/>
+                <body name="l5" pos="0.07 0 0">
+                  <joint name="g1_hal_joint_05" type="hinge" axis="0 1 0" limited="true" range="-3.14 3.14" damping="0.5"/>
+                  <geom type="capsule" fromto="0 0 0 0.06 0 0" size="0.02" rgba="0.95 0.55 0.25 1"/>
+                  <body name="l6" pos="0.06 0 0">
+                    <joint name="g1_hal_joint_06" type="hinge" axis="0 0 1" limited="true" range="-3.14 3.14" damping="0.5"/>
+                    <geom type="sphere" size="0.04" rgba="1 0.2 0.1 1"/>
+                  </body>
+                </body>
+              </body>
+            </body>
+          </body>
+        </body>
+      </body>
+      <body name="r0" pos="0.15 -0.1 0.1">
+        <joint name="g1_hal_joint_07" type="hinge" axis="0 0 1" limited="true" range="-3.14 3.14" damping="0.5"/>
+        <geom type="capsule" fromto="0 0 0 0.1 0 0" size="0.03" rgba="0.2 0.4 0.9 1"/>
+        <body name="r1" pos="0.1 0 0">
+          <joint name="g1_hal_joint_08" type="hinge" axis="0 1 0" limited="true" range="-3.14 3.14" damping="0.5"/>
+          <geom type="capsule" fromto="0 0 0 0.1 0 0" size="0.028" rgba="0.25 0.45 0.9 1"/>
+          <body name="r2" pos="0.1 0 0">
+            <joint name="g1_hal_joint_09" type="hinge" axis="0 0 1" limited="true" range="-3.14 3.14" damping="0.5"/>
+            <geom type="capsule" fromto="0 0 0 0.09 0 0" size="0.026" rgba="0.3 0.5 0.9 1"/>
+            <body name="r3" pos="0.09 0 0">
+              <joint name="g1_hal_joint_10" type="hinge" axis="0 1 0" limited="true" range="-3.14 3.14" damping="0.5"/>
+              <geom type="capsule" fromto="0 0 0 0.08 0 0" size="0.024" rgba="0.35 0.55 0.9 1"/>
+              <body name="r4" pos="0.08 0 0">
+                <joint name="g1_hal_joint_11" type="hinge" axis="0 0 1" limited="true" range="-3.14 3.14" damping="0.5"/>
+                <geom type="capsule" fromto="0 0 0 0.07 0 0" size="0.022" rgba="0.4 0.6 0.9 1"/>
+                <body name="r5" pos="0.07 0 0">
+                  <joint name="g1_hal_joint_12" type="hinge" axis="0 1 0" limited="true" range="-3.14 3.14" damping="0.5"/>
+                  <geom type="capsule" fromto="0 0 0 0.06 0 0" size="0.02" rgba="0.45 0.65 0.95 1"/>
+                  <body name="r6" pos="0.06 0 0">
+                    <joint name="g1_hal_joint_13" type="hinge" axis="0 0 1" limited="true" range="-3.14 3.14" damping="0.5"/>
+                    <geom type="sphere" size="0.04" rgba="0.1 0.3 1 1"/>
+                  </body>
+                </body>
+              </body>
+            </body>
+          </body>
+        </body>
+      </body>
+    </body>
+  </worldbody>
+</mujoco>

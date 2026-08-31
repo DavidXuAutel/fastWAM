@@ -1,0 +1,29 @@
+#!/usr/bin/env expect -f
+# Usage: SSHPASS=cupcake777 ./sync_and_install_remote.expect yao 10.229.66.70 /path/to/mujoco_g1_infer
+# Reads password from env SSHPASS (same convention as sshpass).
+set timeout 600
+if {![info exists env(SSHPASS)]} {
+  puts stderr "Set SSHPASS to the remote user password."
+  exit 2
+}
+set user [lindex $argv 0]
+set host [lindex $argv 1]
+set local_dir [lindex $argv 2]
+if {$user eq "" || $host eq "" || $local_dir eq ""} {
+  puts stderr "usage: SSHPASS=... $argv0 <user> <host> <local_mujoco_g1_infer_dir>"
+  exit 2
+}
+set pass $env(SSHPASS)
+spawn scp -o StrictHostKeyChecking=accept-new -r $local_dir ${user}@${host}:~/
+expect {
+  -re "(?i)password:" { send "$pass\r"; exp_continue }
+  eof
+}
+
+# install_on_ubuntu.sh has no cwd deps — invoke by absolute path (avoids Tcl/spawn quoting bugs).
+spawn ssh -o StrictHostKeyChecking=accept-new ${user}@${host} bash /home/$user/mujoco_g1_infer/install_on_ubuntu.sh
+expect {
+  -re "(?i)password:" { send "$pass\r"; exp_continue }
+  eof
+}
+wait

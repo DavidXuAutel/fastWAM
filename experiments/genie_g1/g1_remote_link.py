@@ -63,8 +63,11 @@ def write_fastdds_peers_xml(robot_ip: str, *, domain_id: int = 0) -> Path:
     """
     ip = robot_ip.strip()
     d = int(domain_id)
+    # FastDDS discovery/user ports can vary with participant index.
+    # Use a wider static peer port window to improve cross-host discovery robustness
+    # on G1 where multiple ROS participants are spawned dynamically.
     base = 7400 + 250 * d
-    ports = [base, base + 1, base + 2, 7410 + 250 * d, 7411 + 250 * d]
+    ports = list(range(base, base + 201))
     locator_lines = []
     for p in ports:
         locator_lines.append(f"""                <locator>

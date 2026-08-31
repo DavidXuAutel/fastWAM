@@ -1,0 +1,50 @@
+#!/usr/bin/env expect -f
+# From dev machine: scp scripts, then SSH to start Isaac Sim and load experiment USD.
+#
+#   export SSHPASS='…'
+#   chmod +x remote_start_isaac_table_cloth_expect.expect
+#   ./remote_start_isaac_table_cloth_expect.expect 10.229.66.70 --headless
+#   ./remote_start_isaac_table_cloth_expect.expect 10.229.66.70 --gui
+#
+# ISAAC_DEPLOY_SUDO_PASS=$SSHPASS only helps when remote uses ISAAC_USE_DOCKER=1 + sudo docker.
+# Native workstation Isaac does not need it (unset on the remote shell if desired).
+if {![info exists env(SSHPASS)]} { puts stderr "Set SSHPASS"; exit 2 }
+set pass $env(SSHPASS)
+set host [lindex $argv 0]
+if {$host eq ""} { set host "10.229.66.70" }
+
+set timeout -1
+set sd [file dirname [info script]]
+set files [list \
+  build_table_cloth_env_standalone.py \
+  load_table_cloth_env_standalone.py \
+  run_build_table_cloth_env_on_host.sh \
+  run_load_table_cloth_on_host.sh \
+  start_isaac_table_cloth_experiment_on_host.sh]
+
+set ssh_opts {-o StrictHostKeyChecking=accept-new -o ServerAliveInterval=30 -o ServerAliveCountMax=120}
+set spawnlist [concat [list scp] $ssh_opts]
+foreach f $files {
+  lappend spawnlist [file join $sd $f]
+}
+lappend spawnlist yao@${host}:~/isaac_genie_g1_sim/
+spawn {*}$spawnlist
+expect {
+  -re "(?i)password:" { send "$pass\r"; exp_continue }
+  eof
+}
+
+# Pass sudo/docker password via env (avoid bash -lc quoting bugs on Tcl [list ...]).
+set ssh_argv [concat \
+  [list ssh {*}$ssh_opts yao@${host} env \
+    ISAAC_DEPLOY_SUDO_PASS=$pass \
+    bash /home/yao/isaac_genie_g1_sim/start_isaac_table_cloth_experiment_on_host.sh] \
+  [lrange $argv 1 end]]
+if {[llength [lrange $argv 1 end]] == 0} {
+  lappend ssh_argv --headless
+}
+spawn {*}$ssh_argv
+expect {
+  -re "(?i)password:" { send "$pass\r"; exp_continue }
+  eof
+}

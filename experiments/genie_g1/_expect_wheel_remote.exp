@@ -1,0 +1,22 @@
+#!/usr/bin/env expect -f
+set timeout 120
+set base /Users/xudazhong/Projects/FastWAM/experiments/genie_g1
+
+spawn scp -o StrictHostKeyChecking=no $base/g1_wheel_step_back.py $base/g1_run_wheel_root.sh agi@10.229.66.60:/tmp/
+expect {
+  -re "(?i)password:" { send "1\r"; exp_continue }
+  eof
+}
+
+spawn ssh -o StrictHostKeyChecking=no agi@10.229.66.60 chmod +x /tmp/g1_run_wheel_root.sh
+expect {
+  -re "(?i)password:" { send "1\r"; exp_continue }
+  eof
+}
+
+# Default: ~0.5 m backward at 0.15 m/s (~3.33 s). Edit args below if needed.
+spawn ssh -o StrictHostKeyChecking=no agi@10.229.66.60 {echo 1 | sudo -S env -i HOME=/root PATH=/opt/ros/humble/bin:/usr/bin:/bin bash /tmp/g1_run_wheel_root.sh --distance-m 0.5 --speed 0.15}
+expect {
+  -re "(?i)password:" { send "1\r"; exp_continue }
+  eof
+}

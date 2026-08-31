@@ -1,0 +1,18 @@
+#!/usr/bin/env expect -f
+# Usage: SSHPASS=... SUDO_PASS=... ./remote_bootstrap_docker_isaac.expect [host]
+# SUDO_PASS defaults to SSHPASS if unset (lab convenience; prefer separate sudo PW in prod).
+if {![info exists env(SSHPASS)]} { puts stderr "Set SSHPASS"; exit 2 }
+if {![info exists env(SUDO_PASS)]} { set env(SUDO_PASS) $env(SSHPASS) }
+set pass $env(SSHPASS)
+set sudopass $env(SUDO_PASS)
+set host [lindex $argv 0]
+if {$host eq ""} { set host "10.229.66.70" }
+set timeout -1
+set sd [file dirname [info script]]
+set boot [file join $sd remote_bootstrap_docker_isaac.sh]
+
+spawn scp -o StrictHostKeyChecking=accept-new $boot yao@${host}:~/isaac_genie_g1_sim/remote_bootstrap_docker_isaac.sh
+expect { -re "(?i)password:" { send "$pass\r"; exp_continue } eof }
+
+spawn ssh -o StrictHostKeyChecking=accept-new yao@${host} env ISAAC_DEPLOY_SUDO_PASS=$sudopass bash /home/yao/isaac_genie_g1_sim/remote_bootstrap_docker_isaac.sh
+expect { -re "(?i)password:" { send "$pass\r"; exp_continue } eof }

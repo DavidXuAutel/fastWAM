@@ -18,6 +18,15 @@ ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 G1_ROBOT_IP="${G1_ROBOT_IP:-10.229.66.60}"
 export G1_ROBOT_IP
 
+# 2026-05-06 有线直连发现结果：
+#   ssh -o HostKeyAlgorithms=+ssh-rsa -o PubkeyAcceptedAlgorithms=+ssh-rsa "${G1_SSH_USER}@${G1_SSH_TARGET}"
+G1_WIRED_IFACE="${G1_WIRED_IFACE:-en7}"
+G1_WIRED_LINK_LOCAL="${G1_WIRED_LINK_LOCAL:-fe80::3e6d:66ff:fe4d:cf55}"
+G1_WIRED_IPV4="${G1_WIRED_IPV4:-10.42.0.101}"
+G1_SSH_USER="${G1_SSH_USER:-agi}"
+G1_SSH_TARGET="${G1_SSH_TARGET:-${G1_WIRED_LINK_LOCAL}%${G1_WIRED_IFACE}}"
+export G1_WIRED_IFACE G1_WIRED_LINK_LOCAL G1_WIRED_IPV4 G1_SSH_USER G1_SSH_TARGET
+
 REMOTE_DDS="${REMOTE_DDS:-fastrtps}"
 
 _py=(python3)

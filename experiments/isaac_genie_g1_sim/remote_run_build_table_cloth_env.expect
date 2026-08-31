@@ -1,0 +1,22 @@
+#!/usr/bin/env expect -f
+# Usage: SSHPASS=... ./remote_run_build_table_cloth_env.expect [host] [skip]
+# Optional second arg "skip" -> passes skip to host script for cloth-less USD if PhysX cloth fails.
+if {![info exists env(SSHPASS)]} { puts stderr "Set SSHPASS"; exit 2 }
+set pass $env(SSHPASS)
+set host [lindex $argv 0]
+if {$host eq ""} { set host "10.229.66.70" }
+set skip [lindex $argv 1]
+set timeout -1
+set sd [file dirname [info script]]
+set py [file join $sd build_table_cloth_env_standalone.py]
+set sh [file join $sd run_build_table_cloth_env_on_host.sh]
+
+spawn scp -o StrictHostKeyChecking=accept-new $py $sh yao@${host}:~/isaac_genie_g1_sim/
+expect { -re "(?i)password:" { send "$pass\r"; exp_continue } eof }
+
+if {$skip ne ""} {
+  spawn ssh -o StrictHostKeyChecking=accept-new yao@${host} bash /home/yao/isaac_genie_g1_sim/run_build_table_cloth_env_on_host.sh /home/yao/docker/isaac-sim/data/genie_sim/table_cloth_env.usd skip
+} else {
+  spawn ssh -o StrictHostKeyChecking=accept-new yao@${host} bash /home/yao/isaac_genie_g1_sim/run_build_table_cloth_env_on_host.sh
+}
+expect { -re "(?i)password:" { send "$pass\r"; exp_continue } eof }

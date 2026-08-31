@@ -1,0 +1,78 @@
+# Apex-WAM-Mini G1 eef6d — Stage B/C dataloader config
+# Target: τ₀-WM compatible dual-arm eef6d relative (20-dim internal)
+# See docs/Apex-WAM-Mini-Design-v3.2.md §8, §10
+
+train:
+  _target_: fastwam.datasets.lerobot.robot_video_dataset.RobotVideoDataset
+  dataset_dirs:
+    - ./data/apex_wam_mini/target_robot_teleop
+    - ./data/apex_wam_mini/mujoco_g1_proxy
+    # video-only sources (L_video only) — add when paths exist:
+    # - ./data/robotwin2.0/robotwin2.0
+  shape_meta:
+    images:
+      - key: head
+        raw_shape: [3, 480, 640]
+        shape: [3, 192, 256]
+      - key: left_wrist
+        raw_shape: [3, 480, 640]
+        shape: [3, 192, 256]
+      - key: right_wrist
+        raw_shape: [3, 480, 640]
+        shape: [3, 192, 256]
+    action:
+      - key: default
+        raw_shape: 20
+        shape: 20
+    state:
+      - key: default
+        raw_shape: 20
+        shape: 20
+  num_frames: 17          # action_horizon=16 + 1 obs frame (§15.3)
+  global_sample_stride: 1
+  action_video_freq_ratio: 4
+  video_size: [384, 320]
+  camera_key: null
+  val_set_proportion: 0.05
+  is_training_set: true
+  skip_padding_as_possible: false
+  concat_multi_camera: horizontal
+  processor:
+    _target_: fastwam.datasets.lerobot.processors.fastwam_processor.FastWAMProcessor
+    shape_meta: ${data.train.shape_meta}
+    num_obs_steps: ${data.train.num_frames}
+    num_output_cameras: 3
+    action_output_dim: 20
+    proprio_output_dim: 20
+    use_stepwise_action_norm: false
+    norm_default_mode: z-score
+    action_state_merger:
+      _target_: fastwam.datasets.lerobot.transforms.action_state_merger.ConcatLeftAlign
+    train_transforms:
+      - _target_: fastwam.datasets.lerobot.transforms.image.ToTensor
+      - _target_: torchvision.transforms.Resize
+        size: [192, 256]
+    val_transforms:
+      - _target_: fastwam.datasets.lerobot.transforms.image.ToTensor
+      - _target_: torchvision.transforms.Resize
+        size: [192, 256]
+  text_embedding_cache_dir: ./data/text_embeds_cache/apex_wam_mini_g1
+  context_len: 128
+
+val:
+  _target_: fastwam.datasets.lerobot.robot_video_dataset.RobotVideoDataset
+  dataset_dirs:
+    - ./data/apex_wam_mini/target_robot_teleop
+  shape_meta: ${data.train.shape_meta}
+  num_frames: ${data.train.num_frames}
+  global_sample_stride: ${data.train.global_sample_stride}
+  action_video_freq_ratio: ${data.train.action_video_freq_ratio}
+  video_size: ${data.train.video_size}
+  camera_key: null
+  val_set_proportion: ${data.train.val_set_proportion}
+  is_training_set: false
+  skip_padding_as_possible: ${data.train.skip_padding_as_possible}
+  concat_multi_camera: ${data.train.concat_multi_camera}
+  processor: ${data.train.processor}
+  text_embedding_cache_dir: ${data.train.text_embedding_cache_dir}
+  context_len: ${data.train.context_len}

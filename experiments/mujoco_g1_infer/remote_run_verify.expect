@@ -1,0 +1,12 @@
+#!/usr/bin/env expect -f
+# Usage: SSHPASS=... ./remote_run_verify.expect 10.229.66.70
+if {![info exists env(SSHPASS)]} { puts stderr "Set SSHPASS"; exit 2 }
+set pass $env(SSHPASS)
+set host [lindex $argv 0]
+if {$host eq ""} { set host "10.229.66.70" }
+set timeout 60
+spawn ssh -o StrictHostKeyChecking=accept-new yao@${host} env MUJOCO_GL=egl python3 /home/yao/mujoco_g1_infer/verify_mujoco_env.py
+expect {
+  -re "(?i)password:" { send "$pass\r"; exp_continue }
+  eof
+}

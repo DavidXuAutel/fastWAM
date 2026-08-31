@@ -1,0 +1,183 @@
+# Local dataset roots — set active_profile: g1 | franka
+active_profile: g1
+
+sources:
+  target_robot_teleop:
+    category: target_action
+    profiles: [g1]
+    lerobot_roots:
+      - ./data/apex_wam_mini/target_robot_teleop
+    default_success: true
+    task_prefix: "g1"
+
+  mujoco_g1_proxy:
+    category: compatible_action
+    profiles: [g1]
+    lerobot_roots:
+      - ./data/apex_wam_mini/mujoco_g1_proxy
+    default_success: true
+    task_prefix: "mujoco_g1"
+
+  franka_target_teleop:
+    category: target_action
+    profiles: [franka]
+    lerobot_roots:
+      - ./data/apex_wam_mini/franka_target_teleop
+    default_success: true
+    task_prefix: "franka"
+
+  robotwin_g1_proxy:
+    category: video_only
+    profiles: [g1, franka]
+    lerobot_roots:
+      - ./data/robotwin2.0/robotwin2.0
+    default_success: true
+    task_prefix: "robotwin"
+
+  libero_spatial:
+    category_by_profile:
+      g1: video_only
+      franka: compatible_action
+    profiles: [g1, franka]
+    lerobot_roots:
+      - ./data/libero_mujoco3.3.2/libero_spatial_no_noops_lerobot
+    default_success: true
+    task_prefix: "libero"
+
+  libero_object:
+    category_by_profile:
+      g1: video_only
+      franka: compatible_action
+    profiles: [g1, franka]
+    lerobot_roots:
+      - ./data/libero_mujoco3.3.2/libero_object_no_noops_lerobot
+    default_success: true
+    task_prefix: "libero"
+
+  libero_goal:
+    category_by_profile:
+      g1: video_only
+      franka: compatible_action
+    profiles: [g1, franka]
+    lerobot_roots:
+      - ./data/libero_mujoco3.3.2/libero_goal_no_noops_lerobot
+    default_success: true
+    task_prefix: "libero"
+
+  libero_10:
+    category_by_profile:
+      g1: video_only
+      franka: compatible_action
+    profiles: [g1, franka]
+    lerobot_roots:
+      - ./data/libero_mujoco3.3.2/libero_10_no_noops_lerobot
+    default_success: true
+    task_prefix: "libero"
+
+  libero_90:
+    category_by_profile:
+      g1: video_only
+      franka: compatible_action
+    profiles: [g1, franka]
+    lerobot_roots:
+      - ./data/franka/libero_90
+    default_success: true
+    task_prefix: "libero"
+
+  libero_plus:
+    category_by_profile:
+      g1: video_only
+      franka: compatible_action
+    profiles: [g1, franka]
+    lerobot_roots:
+      - ./data/franka/libero_plus
+    default_success: true
+    task_prefix: "libero"
+
+  libero_lerobot:
+    category_by_profile:
+      g1: video_only
+      franka: compatible_action
+    profiles: [g1, franka]
+    lerobot_roots:
+      - ./data/franka/lerobot_libero
+    default_success: true
+    task_prefix: "libero"
+
+  libero_long:
+    category_by_profile:
+      g1: video_only
+      franka: compatible_action
+    profiles: [g1, franka]
+    lerobot_roots:
+      - ./data/franka/libero_long
+    default_success: true
+    task_prefix: "libero"
+
+  droid_lerobot:
+    category_by_profile:
+      g1: video_only
+      franka: target_action
+    profiles: [g1, franka]
+    lerobot_roots:
+      - ./data/franka/droid_lerobot
+    default_success: true
+    task_prefix: "droid"
+
+  droid_1.0.1:
+    category: video_only
+    profiles: [g1, franka]
+    lerobot_roots:
+      - ./data/franka/droid_1.0.1
+    default_success: true
+    task_prefix: "droid"
+
+  franka_move:
+    category_by_profile:
+      g1: video_only
+      franka: compatible_action
+    profiles: [g1, franka]
+    lerobot_roots:
+      - ./data/franka/franka_move
+    default_success: true
+    task_prefix: "franka"
+
+  cmu_franka_exploration:
+    category_by_profile:
+      g1: video_only
+      franka: compatible_action
+    profiles: [g1, franka]
+    lerobot_roots:
+      - ./data/franka/cmu_franka_exploration
+    default_success: true
+    task_prefix: "franka"
+
+  failure_rollout:
+    category: failure
+    profiles: [g1, franka]
+    lerobot_roots:
+      - ./data/apex_wam_mini/failure_rollout
+    default_success: false
+    task_prefix: "fail"
+
+# G1 Stage B/C（§10.5）
+stage_b_mix:
+  target_action_data: 0.25
+  compatible_action_data: 0.30
+  video_only_or_incompatible: 0.40
+  failure: 0.05
+
+stage_c_mix:
+  robot_target: 0.90
+  failure: 0.10
+
+# Franka Stage B：LIBERO 作 compatible + action，RoboTwin 作 video-only
+franka_stage_b_mix:
+  target_action_data: 0.15
+  compatible_action_data: 0.45
+  video_only_or_incompatible: 0.35
+  failure: 0.05
+
+franka_stage_c_mix:
+  robot_target: 0.85
+  failure: 0.15
